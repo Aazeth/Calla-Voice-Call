@@ -269,6 +269,7 @@ class SignalingClient(context: Context) {
         activeWebSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "Signaling WebSocket connected to topic: $topic")
+                com.aazeth.calla.util.NetworkLogger.log("WebSocket", "Connected to topic: $topic")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -277,10 +278,12 @@ class SignalingClient(context: Context) {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w(TAG, "Signaling WebSocket failure: ${t.message}")
+                com.aazeth.calla.util.NetworkLogger.log("WebSocket", "Failure: ${t.message}")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "Signaling WebSocket closed: $reason")
+                com.aazeth.calla.util.NetworkLogger.log("WebSocket", "Closed: $reason (code: $code)")
             }
         })
     }
@@ -301,6 +304,8 @@ class SignalingClient(context: Context) {
             // Ignore messages sent by ourselves
             val isFromMe = (isHostRole && sender == "host") || (!isHostRole && sender == "guest")
             if (isFromMe) return
+
+            com.aazeth.calla.util.NetworkLogger.log("WebSocket", "Incoming [$type] from $sender")
 
             when (type) {
                 "join" -> {

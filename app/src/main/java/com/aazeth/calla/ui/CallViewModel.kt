@@ -56,6 +56,7 @@ data class CallUiState(
     val callDurationSeconds: Long = 0L,
     val errorMessage: String? = null,
     val isLoading: Boolean = false,
+    val isLoggingEnabled: Boolean = false,
     val showAudioDspDialog: Boolean = false
 )
 
@@ -73,6 +74,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_CUSTOM_TURN_SERVER = "turn_custom_server"
         private const val KEY_CUSTOM_TURN_USER = "turn_custom_user"
         private const val KEY_CUSTOM_TURN_PASS = "turn_custom_pass"
+        private const val KEY_ENABLE_NETWORK_LOGS = "enable_network_logs"
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -103,10 +105,12 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             Log.d(TAG, "Network restored: onAvailable")
+            com.aazeth.calla.util.NetworkLogger.log("Network", "Restored: onAvailable")
             if (!lastNetworkStateWasConnected && _uiState.value.screen == ScreenState.IN_CALL) {
                 val roomId = _uiState.value.currentRoomId
                 if (roomId.isNotBlank()) {
                     Log.d(TAG, "Auto-reconnecting signaling and triggering ICE restart for room: $roomId")
+                    com.aazeth.calla.util.NetworkLogger.log("Network", "Auto-reconnecting signaling & ICE restart for room $roomId")
                     viewModelScope.launch {
                         signalingClient.reconnectWebSocket(roomId)
                         if (_uiState.value.isHost) {
@@ -122,6 +126,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
 
         override fun onLost(network: Network) {
             Log.w(TAG, "Network lost")
+            com.aazeth.calla.util.NetworkLogger.log("Network", "Lost: onLost")
             lastNetworkStateWasConnected = false
             if (_uiState.value.screen == ScreenState.IN_CALL) {
                 _uiState.update { it.copy(callStatusText = "Reconnecting network...") }
@@ -154,11 +159,16 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             customCredential = prefs.getString(KEY_CUSTOM_TURN_PASS, "") ?: ""
         )
 
+        // Load Network Logging Preference
+        val isLogging = prefs.getBoolean(KEY_ENABLE_NETWORK_LOGS, false)
+        com.aazeth.calla.util.NetworkLogger.isEnabled = isLogging
+
         _uiState.update {
             it.copy(
                 nickname = defaultName,
                 dspSettings = dsp,
-                turnConfig = turn
+                turnConfig = turn,
+                isLoggingEnabled = isLogging
             )
         }
 
@@ -197,6 +207,15 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAudioDspDialogVisible(visible: Boolean) {
         _uiState.update { it.copy(showAudioDspDialog = visible) }
+    }
+
+    fun setEnableNetworkLogs(enabled: Boolean) {
+        com.aazeth.calla.util.NetworkLogger.isEnabled = enabled
+        _uiState.update { it.copy(isLoggingEnabled = enabled) }
+        prefs.edit().putBoolean(KEY_ENABLE_NETWORK_LOGS, enabled).apply()
+        if (enabled) {
+            com.aazeth.calla.util.NetworkLogger.log("System", "Network logging enabled")
+        }
     }
 
     fun updateDspSettings(dsp: AudioDspSettings) {

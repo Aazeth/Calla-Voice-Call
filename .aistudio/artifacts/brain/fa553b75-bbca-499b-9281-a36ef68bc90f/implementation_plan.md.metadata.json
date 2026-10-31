@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana penggabungan section 'Host a New Room' dan 'Join Existing Room' menjadi satu Card bersatu bertajuk 'Voice Call Rooms' dengan Segmented Control ('Create Room' & 'Join Room') serta pembaruan versi ke 1.3.0.",
-  "updatedAt":  "2026-10-31T12:50:04.367096943Z",
+  "summary":  "Plan created for Network Debug Logger feature including toggle, logger utility (WebSocket, WebRTC, ICE, Network events), clipboard exporter, auto-scroll monospace log viewer sheet, memory safety (500 max logs), and version update to 1.4.0.",
+  "updatedAt":  "2026-10-31T18:44:01.313234293Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

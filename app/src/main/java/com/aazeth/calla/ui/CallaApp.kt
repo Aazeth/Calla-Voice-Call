@@ -77,7 +77,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.aazeth.calla.BuildConfig
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -117,6 +122,8 @@ fun CallaApp(
         SettingsBottomSheet(
             dspSettings = uiState.dspSettings,
             turnConfig = uiState.turnConfig,
+            isLoggingEnabled = uiState.isLoggingEnabled,
+            onLoggingEnabledChanged = viewModel::setEnableNetworkLogs,
             onDspSettingsChanged = viewModel::updateDspSettings,
             onTurnConfigChanged = viewModel::updateTurnConfig,
             onDismiss = { viewModel.setAudioDspDialogVisible(false) }
@@ -882,15 +889,27 @@ fun InCallScreen(
 fun SettingsBottomSheet(
     dspSettings: AudioDspSettings,
     turnConfig: TurnConfig,
+    isLoggingEnabled: Boolean,
+    onLoggingEnabledChanged: (Boolean) -> Unit,
     onDspSettingsChanged: (AudioDspSettings) -> Unit,
     onTurnConfigChanged: (TurnConfig) -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     var customServerInput by remember(turnConfig.customServer) { mutableStateOf(turnConfig.customServer) }
     var customUserInput by remember(turnConfig.customUsername) { mutableStateOf(turnConfig.customUsername) }
     var customPassInput by remember(turnConfig.customCredential) { mutableStateOf(turnConfig.customCredential) }
+
+    var showLogViewerSheet by remember { mutableStateOf(false) }
+
+    if (showLogViewerSheet) {
+        NetworkLogViewerSheet(
+            onDismiss = { showLogViewerSheet = false }
+        )
+    }
 
     val handleDismiss: () -> Unit = {
         onTurnConfigChanged(
@@ -1150,6 +1169,81 @@ fun SettingsBottomSheet(
                 }
             }
 
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Enable Network Logs",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (isLoggingEnabled) "Recording WebSocket, WebRTC & ICE events" else "Disabled to save memory",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = isLoggingEnabled,
+                    onCheckedChange = onLoggingEnabledChanged,
+                    modifier = Modifier.testTag("enable_network_logs_switch")
+                )
+            }
+
+            AnimatedVisibility(visible = isLoggingEnabled) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showLogViewerSheet = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("View Logs", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        Button(
+                            onClick = {
+                                val formatted = com.aazeth.calla.util.NetworkLogger.getFormattedLogs()
+                                clipboardManager.setText(AnnotatedString(formatted))
+                                Toast.makeText(context, "Network logs copied to clipboard", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Logs", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            com.aazeth.calla.util.NetworkLogger.clear()
+                            Toast.makeText(context, "Network logs cleared", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Clear Logs", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Footer with dynamic version string from BuildConfig
@@ -1161,6 +1255,177 @@ fun SettingsBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NetworkLogViewerSheet(
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val logs by com.aazeth.calla.util.NetworkLogger.logs.collectAsState()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var autoScroll by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(logs.size, autoScroll) {
+        if (autoScroll && logs.isNotEmpty()) {
+            listState.animateScrollToItem(logs.size - 1)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Network Logs",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = "${logs.size} / 500",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close Logs")
+                }
+            }
+
+            // Controls
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = autoScroll,
+                    onClick = { autoScroll = !autoScroll },
+                    label = { Text("Auto-scroll", style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = if (autoScroll) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    } else null
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { com.aazeth.calla.util.NetworkLogger.clear() },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Clear", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Button(
+                        onClick = {
+                            val formatted = com.aazeth.calla.util.NetworkLogger.getFormattedLogs()
+                            clipboardManager.setText(AnnotatedString(formatted))
+                            Toast.makeText(context, "Network logs copied", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copy", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            // Monospace Log Terminal Box
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(340.dp)
+            ) {
+                if (logs.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No network logs recorded yet.\nConnect or create a room to capture logs.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(logs, key = { it.id }) { log ->
+                            val tagColor = when (log.tag) {
+                                "WebSocket" -> MaterialTheme.colorScheme.primary
+                                "WebRTC" -> MaterialTheme.colorScheme.secondary
+                                "ICE" -> MaterialTheme.colorScheme.tertiary
+                                "Network" -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.outline
+                            }
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "[${log.timestamp}] ",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Text(
+                                    text = "[${log.tag}] ",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    ),
+                                    color = tagColor
+                                )
+                                Text(
+                                    text = log.message,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

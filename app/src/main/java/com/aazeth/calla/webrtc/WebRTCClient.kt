@@ -275,6 +275,7 @@ class WebRTCClient(
             override fun onIceCandidate(candidate: IceCandidate?) {
                 candidate?.let {
                     Log.d(TAG, "Local ICE candidate generated: ${it.sdp}")
+                    com.aazeth.calla.util.NetworkLogger.log("ICE", "Local candidate generated: ${it.sdpMid} - ${it.sdp}")
                     onIceCandidateGenerated(it)
                 }
             }
@@ -283,10 +284,12 @@ class WebRTCClient(
 
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {
                 Log.d(TAG, "SignalingState changed: $state")
+                com.aazeth.calla.util.NetworkLogger.log("WebRTC", "SignalingState changed: $state")
             }
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 Log.d(TAG, "IceConnectionState changed: $state")
+                com.aazeth.calla.util.NetworkLogger.log("WebRTC", "IceConnectionState changed: $state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
@@ -312,6 +315,7 @@ class WebRTCClient(
 
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
                 Log.d(TAG, "IceGatheringState changed: $state")
+                com.aazeth.calla.util.NetworkLogger.log("WebRTC", "IceGatheringState changed: $state")
             }
 
             override fun onAddStream(stream: org.webrtc.MediaStream?) {
@@ -498,8 +502,10 @@ class WebRTCClient(
                 queuedRemoteCandidates.add(candidate)
             }
             Log.d(TAG, "Queued remote candidate until remote description set: ${candidate.sdp}")
+            com.aazeth.calla.util.NetworkLogger.log("ICE", "Queued remote candidate: ${candidate.sdpMid} - ${candidate.sdp}")
         } else {
             pc.addIceCandidate(candidate)
+            com.aazeth.calla.util.NetworkLogger.log("ICE", "Added remote candidate: ${candidate.sdpMid} - ${candidate.sdp}")
         }
     }
 
