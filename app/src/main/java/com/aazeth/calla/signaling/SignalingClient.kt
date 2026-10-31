@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -15,6 +16,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.IceCandidate
 import java.util.concurrent.TimeUnit
@@ -59,6 +61,10 @@ class SignalingClient(context: Context) {
 
     // Cache current room state
     private var currentRoomState = RoomState()
+
+    // ICE Candidate batching queue to avoid ntfy.sh HTTP 429 rate limit
+    private val pendingCandidates = mutableListOf<IceCandidate>()
+    private var candidateFlushJob: Job? = null
 
     fun createRoom(
         roomId: String,
@@ -165,19 +171,39 @@ class SignalingClient(context: Context) {
         isHost: Boolean,
         candidate: IceCandidate
     ) {
-        scope.launch {
+        synchronized(pendingCandidates) {
+            pendingCandidates.add(candidate)
+        }
+        candidateFlushJob?.cancel()
+        candidateFlushJob = scope.launch {
+            delay(150) // Debounce/buffer burst of ICE candidates for 150ms
+            val candidatesToSend = synchronized(pendingCandidates) {
+                val list = pendingCandidates.toList()
+                pendingCandidates.clear()
+                list
+            }
+            if (candidatesToSend.isEmpty()) return@launch
+
             try {
-                val sdp = candidate.sdp ?: return@launch
+                val candidateArray = JSONArray()
+                for (c in candidatesToSend) {
+                    val sdp = c.sdp ?: continue
+                    candidateArray.put(JSONObject().apply {
+                        put("sdpMid", c.sdpMid ?: "")
+                        put("sdpMLineIndex", c.sdpMLineIndex)
+                        put("sdp", sdp)
+                    })
+                }
+                if (candidateArray.length() == 0) return@launch
+
                 val payload = JSONObject().apply {
-                    put("type", "ice")
+                    put("type", "ice_batch")
                     put("sender", if (isHost) "host" else "guest")
-                    put("sdpMid", candidate.sdpMid ?: "")
-                    put("sdpMLineIndex", candidate.sdpMLineIndex)
-                    put("sdp", sdp)
+                    put("candidates", candidateArray)
                 }
                 broadcastSignal(roomId, payload)
             } catch (e: Exception) {
-                Log.w(TAG, "Error sending ICE candidate: ${e.message}")
+                Log.w(TAG, "Error sending ICE candidate batch: ${e.message}")
             }
         }
     }
@@ -337,6 +363,22 @@ class SignalingClient(context: Context) {
                     if (sdp.isNotBlank()) {
                         val candidate = IceCandidate(sdpMid, sdpMLineIndex, sdp)
                         onRemoteIceCandidate?.invoke(candidate)
+                    }
+                }
+
+                "ice_batch" -> {
+                    val candidatesArr = signal.optJSONArray("candidates")
+                    if (candidatesArr != null) {
+                        for (i in 0 until candidatesArr.length()) {
+                            val candObj = candidatesArr.optJSONObject(i) ?: continue
+                            val sdpMid = candObj.optString("sdpMid")
+                            val sdpMLineIndex = candObj.optInt("sdpMLineIndex", 0)
+                            val sdp = candObj.optString("sdp")
+                            if (sdp.isNotBlank()) {
+                                val candidate = IceCandidate(sdpMid, sdpMLineIndex, sdp)
+                                onRemoteIceCandidate?.invoke(candidate)
+                            }
+                        }
                     }
                 }
 
