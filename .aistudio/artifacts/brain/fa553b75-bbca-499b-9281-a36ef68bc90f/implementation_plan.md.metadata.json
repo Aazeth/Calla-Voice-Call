@@ -1,0 +1,6 @@
+{
+  "summary":  "Rencana revisi tampilan Calla:\n1. Mengganti icon header sebelah kiri 'Calla' dengan icon resmi Calla (ic_launcher_foreground).\n2. Memotong jarak antara status bar dan header sebanyak 50%.\n3. Merapikan dan memperbarui tampilan dialog Pengaturan (Audio DSP & TURN Relay) menjadi lebih minimalis, bersih, dan modern khas Material 3.",
+  "updatedAt":  "2026-10-31T09:55:38.754647224Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

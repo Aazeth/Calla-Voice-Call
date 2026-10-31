@@ -1,0 +1,537 @@
+package com.aazeth.calla.ui
+
+import android.Manifest
+import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.aazeth.calla.service.CallService
+import com.aazeth.calla.signaling.RoomState
+import com.aazeth.calla.signaling.SignalingClient
+import com.aazeth.calla.webrtc.AudioDspSettings
+import com.aazeth.calla.webrtc.AudioRoute
+import com.aazeth.calla.webrtc.CallConnectionStatus
+import com.aazeth.calla.webrtc.TurnConfig
+import com.aazeth.calla.webrtc.WebRTCClient
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.webrtc.IceCandidate
+
+enum class ScreenState {
+    LOBBY,
+    IN_CALL
+}
+
+data class CallUiState(
+    val screen: ScreenState = ScreenState.LOBBY,
+    val nickname: String = "",
+    val bitrateKbps: Int = 128,
+    val joinCodeInput: String = "",
+    val currentRoomId: String = "",
+    val isHost: Boolean = false,
+    val peerName: String = "",
+    val callStatus: CallConnectionStatus = CallConnectionStatus.IDLE,
+    val callStatusText: String = "",
+    val isMicMuted: Boolean = false,
+    val audioRoute: AudioRoute = AudioRoute.SPEAKER,
+    val dspSettings: AudioDspSettings = AudioDspSettings(),
+    val turnConfig: TurnConfig = TurnConfig(),
+    val callDurationSeconds: Long = 0L,
+    val errorMessage: String? = null,
+    val isLoading: Boolean = false,
+    val showAudioDspDialog: Boolean = false
+)
+
+class CallViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "CallViewModel"
+        private const val PREFS_NAME = "calla_preferences"
+        private const val KEY_NICKNAME = "saved_nickname"
+        private const val KEY_DSP_NOISE = "dsp_noise_suppression"
+        private const val KEY_DSP_ECHO = "dsp_echo_cancellation"
+        private const val KEY_DSP_AGC = "dsp_auto_gain_control"
+        private const val KEY_DSP_HIGHPASS = "dsp_highpass_filter"
+        private const val KEY_USE_CUSTOM_TURN = "turn_use_custom"
+        private const val KEY_CUSTOM_TURN_SERVER = "turn_custom_server"
+        private const val KEY_CUSTOM_TURN_USER = "turn_custom_user"
+        private const val KEY_CUSTOM_TURN_PASS = "turn_custom_pass"
+    }
+
+    private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val signalingClient = SignalingClient(application)
+    private var webRtcClient: WebRTCClient? = null
+
+    private val connectivityManager = application.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    private val _uiState = MutableStateFlow(CallUiState())
+    val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
+
+    private var timerJob: Job? = null
+    private var isEndingCall = false
+    private var isAnswerCreated = false
+    private var lastNetworkStateWasConnected = true
+
+    // Receiver for End Call button in system notification
+    private val notificationActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == CallService.ACTION_CALL_ENDED_FROM_NOTIFICATION) {
+                Log.d(TAG, "Call ended via notification action")
+                endCall(remoteInitiated = false)
+            }
+        }
+    }
+
+    // Network callback to detect disconnection and handle auto-reconnect + ICE Restart
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            Log.d(TAG, "Network restored: onAvailable")
+            if (!lastNetworkStateWasConnected && _uiState.value.screen == ScreenState.IN_CALL) {
+                val roomId = _uiState.value.currentRoomId
+                if (roomId.isNotBlank()) {
+                    Log.d(TAG, "Auto-reconnecting signaling and triggering ICE restart for room: $roomId")
+                    viewModelScope.launch {
+                        signalingClient.reconnectWebSocket(roomId)
+                        if (_uiState.value.isHost) {
+                            webRtcClient?.restartIce(_uiState.value.bitrateKbps) { newOffer ->
+                                Log.d(TAG, "ICE restart offer generated")
+                            }
+                        }
+                    }
+                }
+            }
+            lastNetworkStateWasConnected = true
+        }
+
+        override fun onLost(network: Network) {
+            Log.w(TAG, "Network lost")
+            lastNetworkStateWasConnected = false
+            if (_uiState.value.screen == ScreenState.IN_CALL) {
+                _uiState.update { it.copy(callStatusText = "Reconnecting network...") }
+            }
+        }
+    }
+
+    init {
+        // Load Nickname
+        val initialNickname = prefs.getString(KEY_NICKNAME, "") ?: ""
+        val defaultName = if (initialNickname.isNotBlank()) {
+            initialNickname
+        } else {
+            "User #" + (100..999).random()
+        }
+
+        // Load Audio DSP settings (Default: all false / Raw Audio Mode)
+        val dsp = AudioDspSettings(
+            noiseSuppression = prefs.getBoolean(KEY_DSP_NOISE, false),
+            echoCancellation = prefs.getBoolean(KEY_DSP_ECHO, false),
+            autoGainControl = prefs.getBoolean(KEY_DSP_AGC, false),
+            highpassFilter = prefs.getBoolean(KEY_DSP_HIGHPASS, false)
+        )
+
+        // Load TURN relay settings (Default: OpenRelay built-in)
+        val turn = TurnConfig(
+            useCustomTurn = prefs.getBoolean(KEY_USE_CUSTOM_TURN, false),
+            customServer = prefs.getString(KEY_CUSTOM_TURN_SERVER, "") ?: "",
+            customUsername = prefs.getString(KEY_CUSTOM_TURN_USER, "") ?: "",
+            customCredential = prefs.getString(KEY_CUSTOM_TURN_PASS, "") ?: ""
+        )
+
+        _uiState.update {
+            it.copy(
+                nickname = defaultName,
+                dspSettings = dsp,
+                turnConfig = turn
+            )
+        }
+
+        // Register notification broadcast receiver
+        val filter = IntentFilter(CallService.ACTION_CALL_ENDED_FROM_NOTIFICATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            application.registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            application.registerReceiver(notificationActionReceiver, filter)
+        }
+
+        // Register NetworkCallback
+        try {
+            val networkRequest = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register network callback: ${e.message}")
+        }
+    }
+
+    fun setNickname(name: String) {
+        _uiState.update { it.copy(nickname = name) }
+        prefs.edit().putString(KEY_NICKNAME, name).apply()
+    }
+
+    fun setBitrate(kbps: Int) {
+        _uiState.update { it.copy(bitrateKbps = kbps.coerceIn(64, 256)) }
+    }
+
+    fun setJoinCodeInput(code: String) {
+        val filtered = code.filter { it.isDigit() }.take(6)
+        _uiState.update { it.copy(joinCodeInput = filtered, errorMessage = null) }
+    }
+
+    fun setAudioDspDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showAudioDspDialog = visible) }
+    }
+
+    fun updateDspSettings(dsp: AudioDspSettings) {
+        _uiState.update { it.copy(dspSettings = dsp) }
+        prefs.edit()
+            .putBoolean(KEY_DSP_NOISE, dsp.noiseSuppression)
+            .putBoolean(KEY_DSP_ECHO, dsp.echoCancellation)
+            .putBoolean(KEY_DSP_AGC, dsp.autoGainControl)
+            .putBoolean(KEY_DSP_HIGHPASS, dsp.highpassFilter)
+            .apply()
+    }
+
+    fun updateTurnConfig(turn: TurnConfig) {
+        _uiState.update { it.copy(turnConfig = turn) }
+        prefs.edit()
+            .putBoolean(KEY_USE_CUSTOM_TURN, turn.useCustomTurn)
+            .putString(KEY_CUSTOM_TURN_SERVER, turn.customServer)
+            .putString(KEY_CUSTOM_TURN_USER, turn.customUsername)
+            .putString(KEY_CUSTOM_TURN_PASS, turn.customCredential)
+            .apply()
+    }
+
+    fun dismissError() {
+        _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun createRoom() {
+        val context = getApplication<Application>()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            _uiState.update { it.copy(errorMessage = "Microphone permission is required to start a call") }
+            return
+        }
+
+        val code = (100000..999999).random().toString()
+        val bitrate = _uiState.value.bitrateKbps
+        val myName = _uiState.value.nickname.ifBlank { "Host" }
+        isEndingCall = false
+        isAnswerCreated = false
+
+        _uiState.update {
+            it.copy(
+                screen = ScreenState.IN_CALL,
+                currentRoomId = code,
+                isHost = true,
+                peerName = "Waiting for guest...",
+                callStatus = CallConnectionStatus.CONNECTING,
+                callStatusText = "Waiting for partner to join...",
+                callDurationSeconds = 0L,
+                isLoading = true,
+                errorMessage = null
+            )
+        }
+
+        CallService.start(context, code, "Waiting for guest...", bitrate, "Waiting")
+
+        initWebRTC(
+            isHost = true,
+            roomId = code,
+            bitrateKbps = bitrate,
+            onReady = { rtc ->
+                rtc.createOffer(bitrate) { offerDesc ->
+                    viewModelScope.launch {
+                        val result = signalingClient.createRoom(
+                            roomId = code,
+                            hostName = myName,
+                            bitrateKbps = bitrate,
+                            offerSdp = offerDesc.description
+                        )
+                        result.onSuccess {
+                            _uiState.update { state -> state.copy(isLoading = false) }
+                            startSignalingObservation(code, isHost = true)
+                        }.onFailure { err ->
+                            Log.e(TAG, "Failed to create room", err)
+                            _uiState.update { state ->
+                                state.copy(
+                                    isLoading = false,
+                                    errorMessage = "Failed to create room: ${err.localizedMessage}"
+                                )
+                            }
+                            endCall()
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    fun joinRoom() {
+        val context = getApplication<Application>()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            _uiState.update { it.copy(errorMessage = "Microphone permission is required to join a call") }
+            return
+        }
+
+        val code = _uiState.value.joinCodeInput.trim()
+        if (code.length != 6) {
+            _uiState.update { it.copy(errorMessage = "Room code must be 6 digits") }
+            return
+        }
+
+        val myName = _uiState.value.nickname.ifBlank { "Guest" }
+        val bitrate = _uiState.value.bitrateKbps
+        isEndingCall = false
+        isAnswerCreated = false
+
+        _uiState.update {
+            it.copy(
+                screen = ScreenState.IN_CALL,
+                currentRoomId = code,
+                isHost = false,
+                peerName = "Host",
+                callStatus = CallConnectionStatus.CONNECTING,
+                callStatusText = "Connecting to room...",
+                callDurationSeconds = 0L,
+                isLoading = true,
+                errorMessage = null
+            )
+        }
+
+        CallService.start(context, code, "Host", bitrate, "Connecting")
+
+        initWebRTC(
+            isHost = false,
+            roomId = code,
+            bitrateKbps = bitrate,
+            onReady = { rtc ->
+                viewModelScope.launch {
+                    val joinResult = signalingClient.joinRoom(code, myName)
+                    joinResult.onSuccess {
+                        _uiState.update { state -> state.copy(isLoading = false) }
+                        startSignalingObservation(code, isHost = false)
+                    }.onFailure { err ->
+                        Log.e(TAG, "Failed to join room", err)
+                        _uiState.update { state ->
+                            state.copy(
+                                isLoading = false,
+                                errorMessage = "Failed to join: ${err.localizedMessage}"
+                            )
+                        }
+                        endCall()
+                    }
+                }
+            }
+        )
+    }
+
+    private fun initWebRTC(
+        isHost: Boolean,
+        roomId: String,
+        bitrateKbps: Int,
+        onReady: (WebRTCClient) -> Unit
+    ) {
+        try {
+            webRtcClient?.close()
+            val context = getApplication<Application>()
+
+            val client = WebRTCClient(
+                context = context,
+                onIceCandidateGenerated = { candidate ->
+                    signalingClient.sendIceCandidate(roomId, isHost, candidate)
+                },
+                onConnectionStatusChanged = { status ->
+                    viewModelScope.launch {
+                        handleConnectionStatus(status)
+                    }
+                },
+                onAudioRouteChanged = { route ->
+                    _uiState.update { it.copy(audioRoute = route) }
+                }
+            )
+            webRtcClient = client
+            client.startLocalAudio(_uiState.value.dspSettings)
+            client.createPeerConnection(_uiState.value.turnConfig)
+            _uiState.update { it.copy(audioRoute = client.currentAudioRoute) }
+            onReady(client)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize WebRTC: ${e.message}", e)
+            _uiState.update { it.copy(errorMessage = "Microphone error: ${e.message}", isLoading = false) }
+            endCall()
+        }
+    }
+
+    private fun startSignalingObservation(roomId: String, isHost: Boolean) {
+        signalingClient.observeRoom(roomId) { roomState ->
+            if (isEndingCall || roomState == null) return@observeRoom
+
+            if (roomState.status == "ended") {
+                Log.d(TAG, "Room was closed by remote user")
+                viewModelScope.launch {
+                    endCall(remoteInitiated = true)
+                }
+                return@observeRoom
+            }
+
+            if (isHost) {
+                // Host receives Answer from Guest
+                if (!roomState.joinerName.isNullOrBlank()) {
+                    _uiState.update { it.copy(peerName = roomState.joinerName) }
+                    CallService.update(
+                        getApplication(),
+                        status = "Connected",
+                        peerName = roomState.joinerName
+                    )
+                }
+                if (!roomState.answerSdp.isNullOrBlank() && _uiState.value.callStatus != CallConnectionStatus.CONNECTED) {
+                    webRtcClient?.handleRemoteAnswer(roomState.answerSdp)
+                }
+            } else {
+                // Guest receives Offer from Host
+                if (!roomState.hostName.isNullOrBlank()) {
+                    _uiState.update { it.copy(peerName = roomState.hostName) }
+                    CallService.update(
+                        getApplication(),
+                        status = "Connected",
+                        peerName = roomState.hostName
+                    )
+                }
+                if (!roomState.offerSdp.isNullOrBlank() && !isAnswerCreated) {
+                    isAnswerCreated = true
+                    val remoteBitrate = roomState.bitrateKbps.toInt().coerceIn(64, 256)
+                    val guestName = _uiState.value.nickname.ifBlank { "Guest" }
+
+                    webRtcClient?.handleRemoteOfferAndCreateAnswer(roomState.offerSdp, remoteBitrate) { answerDesc ->
+                        signalingClient.sendAnswer(roomId, answerDesc.description, guestName)
+                    }
+                }
+            }
+        }
+
+        signalingClient.observeRemoteCandidates(roomId, isHost) { candidate ->
+            try {
+                webRtcClient?.addRemoteIceCandidate(candidate)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error adding remote candidate: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleConnectionStatus(status: CallConnectionStatus) {
+        val statusText = when (status) {
+            CallConnectionStatus.IDLE -> "Idle"
+            CallConnectionStatus.CONNECTING -> "Connecting WebRTC..."
+            CallConnectionStatus.CONNECTED -> "Connected"
+            CallConnectionStatus.DISCONNECTED -> "Disconnected"
+            CallConnectionStatus.FAILED -> "Connection Failed"
+        }
+
+        _uiState.update {
+            it.copy(
+                callStatus = status,
+                callStatusText = statusText
+            )
+        }
+
+        CallService.update(getApplication(), status = statusText)
+
+        if (status == CallConnectionStatus.CONNECTED) {
+            startTimer()
+        } else if (status == CallConnectionStatus.FAILED || status == CallConnectionStatus.DISCONNECTED) {
+            stopTimer()
+        }
+    }
+
+    private fun startTimer() {
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000L)
+                _uiState.update { it.copy(callDurationSeconds = it.callDurationSeconds + 1L) }
+            }
+        }
+    }
+
+    private fun stopTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
+
+    fun toggleMute() {
+        val muted = webRtcClient?.toggleMute() ?: false
+        _uiState.update { it.copy(isMicMuted = muted) }
+    }
+
+    fun cycleAudioRoute() {
+        val nextRoute = webRtcClient?.cycleAudioRoute() ?: AudioRoute.SPEAKER
+        _uiState.update { it.copy(audioRoute = nextRoute) }
+    }
+
+    fun endCall(remoteInitiated: Boolean = false) {
+        if (isEndingCall) return
+        isEndingCall = true
+        stopTimer()
+
+        val roomId = _uiState.value.currentRoomId
+        val context = getApplication<Application>()
+        CallService.stop(context)
+
+        viewModelScope.launch {
+            if (!remoteInitiated && roomId.isNotBlank()) {
+                signalingClient.cleanupRoom(roomId)
+            } else {
+                signalingClient.stopObservation()
+            }
+
+            webRtcClient?.close()
+            webRtcClient = null
+
+            _uiState.update {
+                it.copy(
+                    screen = ScreenState.LOBBY,
+                    currentRoomId = "",
+                    isHost = false,
+                    peerName = "",
+                    callStatus = CallConnectionStatus.IDLE,
+                    callStatusText = "",
+                    isMicMuted = false,
+                    audioRoute = AudioRoute.SPEAKER,
+                    callDurationSeconds = 0L,
+                    joinCodeInput = "",
+                    errorMessage = if (remoteInitiated) "Call was ended by partner" else null
+                )
+            }
+            isEndingCall = false
+            isAnswerCreated = false
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            getApplication<Application>().unregisterReceiver(notificationActionReceiver)
+        } catch (_: Exception) {}
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {}
+        endCall()
+    }
+}

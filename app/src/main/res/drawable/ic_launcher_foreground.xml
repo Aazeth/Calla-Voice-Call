@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:translateY="-4">
+        <!-- Calla Lily Stem -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M52,78 C52,86 51,92 49,98 L55,98 C55,92 56,86 56,78 Z" />
+        <!-- Calla Lily Bloom Silhouette -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,24 C57,32 68,40 74,48 C81,58 77,70 68,76 C60,81 54,82 54,82 C54,82 48,81 40,76 C31,70 27,58 34,48 C40,40 51,32 54,24 Z" />
+        <!-- Calla Lily Fold & Spadix -->
+        <path
+            android:fillColor="#37474F"
+            android:pathData="M54,42 C56,42 57,48 56,58 C55,65 53,68 54,74 C52,70 51,64 52,58 C53,48 53,42 54,42 Z" />
+    </group>
+</vector>
