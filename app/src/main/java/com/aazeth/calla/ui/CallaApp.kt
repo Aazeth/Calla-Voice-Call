@@ -387,15 +387,10 @@ fun LobbyScreen(
                 }
             }
 
-            // 3. Room Actions Section
-            Text(
-                text = "Voice Call Rooms",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            // 3. Voice Call Rooms Section (Single Merged Card)
+            var roomModeIndex by remember { mutableStateOf(0) }
+            val roomOptions = listOf("Create Room", "Join Room")
 
-            // Create Room Card
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
@@ -405,144 +400,152 @@ fun LobbyScreen(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(
-                        text = "Host a New Room",
+                        text = "Voice Call Rooms",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Generates a unique 6-digit code for your partner to join a 1-on-1 voice call instantly.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = onCreateRoom,
-                        enabled = !uiState.isLoading,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("create_room_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        if (uiState.isLoading && uiState.isHost) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.PhoneInTalk,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Create Room",
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                        }
-                    }
-                }
-            }
 
-            // Join Room Card
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "Join Existing Room",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Enter the 6-digit code shared by the host to connect.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    OutlinedTextField(
-                        value = uiState.joinCodeInput,
-                        onValueChange = { input ->
-                            val digitsOnly = input.filter { it.isDigit() }.take(6)
-                            onJoinCodeChange(digitsOnly)
-                        },
-                        label = { Text("6-Digit Code") },
-                        placeholder = { Text("e.g. 482915") },
-                        supportingText = {
-                            Text(
-                                text = "${uiState.joinCodeInput.length}/6 digits",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (uiState.joinCodeInput.length == 6) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outline
-                                }
-                            )
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Go
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onGo = {
-                                if (uiState.joinCodeInput.length == 6) onJoinRoom()
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        roomOptions.forEachIndexed { index, label ->
+                            SegmentedButton(
+                                selected = roomModeIndex == index,
+                                onClick = { roomModeIndex = index },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = roomOptions.size)
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
                             }
-                        ),
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    coroutineScope.launch {
-                                        delay(300)
-                                        scrollState.animateScrollTo(scrollState.maxValue)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (roomModeIndex == 0) {
+                        // Create Room Mode
+                        Text(
+                            text = "Generates a unique 6-digit code for your partner to join a 1-on-1 voice call instantly.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onCreateRoom,
+                            enabled = !uiState.isLoading,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("create_room_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            if (uiState.isLoading && uiState.isHost) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.PhoneInTalk,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Create Room",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                            }
+                        }
+                    } else {
+                        // Join Room Mode
+                        Text(
+                            text = "Enter the 6-digit code shared by the host to connect.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        OutlinedTextField(
+                            value = uiState.joinCodeInput,
+                            onValueChange = { input ->
+                                val digitsOnly = input.filter { it.isDigit() }.take(6)
+                                onJoinCodeChange(digitsOnly)
+                            },
+                            label = { Text("6-Digit Code") },
+                            placeholder = { Text("e.g. 482915") },
+                            supportingText = {
+                                Text(
+                                    text = "${uiState.joinCodeInput.length}/6 digits",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (uiState.joinCodeInput.length == 6) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outline
+                                    }
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Go
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onGo = {
+                                    if (uiState.joinCodeInput.length == 6) onJoinRoom()
+                                }
+                            ),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        coroutineScope.launch {
+                                            delay(300)
+                                            scrollState.animateScrollTo(scrollState.maxValue)
+                                        }
                                     }
                                 }
+                                .testTag("join_code_input"),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        FilledTonalButton(
+                            onClick = onJoinRoom,
+                            enabled = !uiState.isLoading && uiState.joinCodeInput.length == 6,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("join_room_button")
+                        ) {
+                            if (uiState.isLoading && !uiState.isHost) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Join Room",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
                             }
-                            .testTag("join_code_input"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    FilledTonalButton(
-                        onClick = onJoinRoom,
-                        enabled = !uiState.isLoading && uiState.joinCodeInput.length == 6,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("join_room_button")
-                    ) {
-                        if (uiState.isLoading && !uiState.isHost) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Join Room",
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                            )
                         }
                     }
                 }

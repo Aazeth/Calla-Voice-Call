@@ -1,39 +1,34 @@
-# Implementation Plan: Calla Settings Redesign to Modal Bottom Sheet
+# Implementation Plan: Voice Call Rooms Card Consolidation
 
-Refactoring dan redesain total komponen Pengaturan (Settings) dari `AlertDialog` melayang menjadi `ModalBottomSheet` Material 3 yang modern, minimalis, dan terstruktur.
+Menggabungkan seksi pembuatan ruangan ("Host a New Room") dan masuk ruangan ("Join Existing Room") menjadi satu Card terpadu bertajuk "Voice Call Rooms" menggunakan `SingleChoiceSegmentedButtonRow`.
 
 ## Proposed Changes
 
 ### Build Configuration
 #### [app/build.gradle.kts]
-- Update `versionCode = 7`
-- Update `versionName = "1.2.0"`
+- Update `versionCode = 8`
+- Update `versionName = "1.3.0"`
 
 ---
 
-### Settings Screen Redesign
+### UI Consolidation in Lobby Screen
 #### [app/src/main/java/com/aazeth/calla/ui/CallaApp.kt]
-- Ganti `AudioDspSettingsDialog` dengan `SettingsBottomSheet` menggunakan `ModalBottomSheet` `@OptIn(ExperimentalMaterial3Api::class)`.
-- **Header:**
-  - Judul "Settings" di sebelah kiri (`titleLarge` / `bold`).
-  - Tombol icon silang `Icons.Default.Close` di kanan atas untuk menutup sheet.
-- **Section Audio DSP (Bagian Atas):**
-  - Hapus layout dua tab dan banner.
-  - Gunakan `SingleChoiceSegmentedButtonRow` / `SegmentedButton` dengan 3 opsi:
-    - `"Raw Audio"` (Semua filter DSP diatur `false`).
-    - `"Balanced"` (Semua filter DSP diatur `true`).
-    - `"Custom"` (Menampilkan Card berisi 4 switch `ListItem` M3: Noise Suppression, Echo Cancellation, Auto Gain Control, High-pass Filter).
-- **Section Network Relay (Bagian Bawah):**
-  - Beri pembatas `HorizontalDivider` dan header seksi `"Network Relay"`.
-  - Satu toggle switch utama: `"Use Custom TURN Server"` (default `OFF` menggunakan OpenRelay bawaan).
-  - Ketika switch diaktifkan (`ON`), kolom input `OutlinedTextField` untuk URL, Username, dan Password akan mekar secara dinamis.
-- **Footer:**
-  - Teks kecil terpusat di paling bawah: `"Calla v1.2.0"` dengan warna `onSurfaceVariant` / muted text.
+- Pada `LobbyScreen`:
+  - Buat satu `Card` tunggal bertajuk **"Voice Call Rooms"**.
+  - Tambahkan `SingleChoiceSegmentedButtonRow` dengan 2 opsi:
+    - `"Create Room"` (Index 0, default)
+    - `"Join Room"` (Index 1)
+  - **Opsi "Create Room":**
+    - Tampilkan teks deskripsi singkat tentang pembentukan ruangan baru.
+    - Tampilkan tombol utama **"Create Room"**.
+  - **Opsi "Join Room":**
+    - Tampilkan field input `"6-Digit Code"` (`OutlinedTextField`) secara dinamis saat mode `"Join Room"` dipilih.
+    - Tampilkan tombol **"Join Room"** di bawahnya.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Jalankan `gradle :app:testDebugUnitTest` untuk memverifikasi unit test.
-- Eksekusi `compile_applet` untuk memastikan kompilasi Compose dan `ModalBottomSheet` sukses tanpa error.
+- Jalankan `gradle :app:testDebugUnitTest` untuk memverifikasi fungsionalitas unit test.
+- Jalankan `compile_applet` untuk memverifikasi kelancaran kompilasi Compose.
