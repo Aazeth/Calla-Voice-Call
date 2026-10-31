@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana revisi penyesuaian ukuran icon Calla:\nMemperbesar skala/ukuran visual icon Calla di dalam lingkaran background header agar tampak lebih proporsional, jelas, dan konsisten dengan icon aplikasi.",
-  "updatedAt":  "2026-10-31T10:08:52.184152432Z",
+  "summary":  "Rencana refactoring dan redesain total Settings Screen menjadi ModalBottomSheet:\n1. Mengubah AlertDialog melayang menjadi ModalBottomSheet dengan header title \"Settings\" di kiri & tombol 'X' di kanan atas.\n2. Section Audio DSP: Mengganti tab dengan SegmentedButton preset 3 pilihan (\"Raw Audio\", \"Balanced\", \"Custom\").\n3. Section Network Relay: Menggunakan 1 toggle utama \"Use Custom TURN Server\" dengan input field dinamis saat aktif.\n4. Footer: Menampilkan versi \"Calla v1.2.0\" di bagian paling bawah.\n5. Memperbarui versionName menjadi \"1.2.0\" di build.gradle.kts.",
+  "updatedAt":  "2026-10-31T12:21:01.461728906Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

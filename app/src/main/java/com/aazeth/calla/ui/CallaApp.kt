@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
@@ -58,9 +59,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -70,6 +75,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import com.aazeth.calla.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,6 +93,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -106,7 +114,7 @@ fun CallaApp(
     val uiState by viewModel.uiState.collectAsState()
 
     if (uiState.showAudioDspDialog) {
-        AudioDspSettingsDialog(
+        SettingsBottomSheet(
             dspSettings = uiState.dspSettings,
             turnConfig = uiState.turnConfig,
             onDspSettingsChanged = viewModel::updateDspSettings,
@@ -866,333 +874,292 @@ fun InCallScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AudioDspSettingsDialog(
+fun SettingsBottomSheet(
     dspSettings: AudioDspSettings,
     turnConfig: TurnConfig,
     onDspSettingsChanged: (AudioDspSettings) -> Unit,
     onTurnConfigChanged: (TurnConfig) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(0) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var customServerInput by remember(turnConfig.customServer) { mutableStateOf(turnConfig.customServer) }
     var customUserInput by remember(turnConfig.customUsername) { mutableStateOf(turnConfig.customUsername) }
     var customPassInput by remember(turnConfig.customCredential) { mutableStateOf(turnConfig.customCredential) }
 
-    AlertDialog(
-        onDismissRequest = {
-            onTurnConfigChanged(
-                turnConfig.copy(
-                    customServer = customServerInput,
-                    customUsername = customUserInput,
-                    customCredential = customPassInput
-                )
+    val handleDismiss: () -> Unit = {
+        onTurnConfigChanged(
+            turnConfig.copy(
+                customServer = customServerInput,
+                customUsername = customUserInput,
+                customCredential = customPassInput
             )
-            onDismiss()
-        },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+        )
+        onDismiss()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = handleDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = "Settings",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold
+                    )
                 )
+                IconButton(onClick = handleDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Settings"
+                    )
+                }
             }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+
+            // Section 1: Audio DSP
+            Text(
+                text = "Audio DSP",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            val isRaw = !dspSettings.noiseSuppression &&
+                    !dspSettings.echoCancellation &&
+                    !dspSettings.autoGainControl &&
+                    !dspSettings.highpassFilter
+
+            val isBalanced = dspSettings.noiseSuppression &&
+                    dspSettings.echoCancellation &&
+                    dspSettings.autoGainControl &&
+                    dspSettings.highpassFilter
+
+            // Selected preset: 0 = Raw Audio (Default), 1 = Balanced, 2 = Custom
+            val selectedPresetIndex = when {
+                isRaw -> 0
+                isBalanced -> 1
+                else -> 2
+            }
+
+            val presetOptions = listOf("Raw Audio", "Balanced", "Custom")
+
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth()
             ) {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Audio DSP", style = MaterialTheme.typography.labelMedium) },
-                        icon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("TURN Relay", style = MaterialTheme.typography.labelMedium) },
-                        icon = { Icon(Icons.Default.Public, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                }
-
-                if (selectedTab == 0) {
-                    val isRawMode = !dspSettings.noiseSuppression &&
-                            !dspSettings.echoCancellation &&
-                            !dspSettings.autoGainControl &&
-                            !dspSettings.highpassFilter
-
-                    // Status Banner
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (isRawMode) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = if (isRawMode) "Mode: Raw Audio (Full Detail)" else "Mode: Filtered Audio (Voice Compression)",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = if (isRawMode) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (isRawMode) {
-                                    "All WebRTC DSP filters disabled. Microphone captures raw uncompressed sound including breath and subtle vocal nuances."
-                                } else {
-                                    "WebRTC acoustic filters active. Background noise, acoustic echoes, and rumble are attenuated."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isRawMode) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Quick Presets
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                onDspSettingsChanged(AudioDspSettings(false, false, false, false))
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("All OFF (Raw)", style = MaterialTheme.typography.labelSmall)
-                        }
-                        Button(
-                            onClick = {
-                                onDspSettingsChanged(AudioDspSettings(true, true, true, true))
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("All ON (Filtered)", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    // DSP Toggles
-                    DspToggleItem(
-                        title = "Noise Suppression",
-                        desc = "Attenuates ambient and background noise",
-                        checked = dspSettings.noiseSuppression,
-                        onCheckedChange = { onDspSettingsChanged(dspSettings.copy(noiseSuppression = it)) }
-                    )
-
-                    DspToggleItem(
-                        title = "Echo Cancellation",
-                        desc = "Prevents speaker and earpiece acoustic feedback",
-                        checked = dspSettings.echoCancellation,
-                        onCheckedChange = { onDspSettingsChanged(dspSettings.copy(echoCancellation = it)) }
-                    )
-
-                    DspToggleItem(
-                        title = "Auto Gain Control",
-                        desc = "Dynamically balances input microphone levels",
-                        checked = dspSettings.autoGainControl,
-                        onCheckedChange = { onDspSettingsChanged(dspSettings.copy(autoGainControl = it)) }
-                    )
-
-                    DspToggleItem(
-                        title = "High-pass Filter",
-                        desc = "Eliminates low-frequency hum and rumble",
-                        checked = dspSettings.highpassFilter,
-                        onCheckedChange = { onDspSettingsChanged(dspSettings.copy(highpassFilter = it)) }
-                    )
-                } else {
-                    // TURN Relay Section
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "Cross-Network Connectivity",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Relays encrypted audio packets across different cellular carriers (CGNAT) and Wi-Fi networks when direct P2P NAT traversal is blocked.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (!turnConfig.useCustomTurn) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = if (!turnConfig.useCustomTurn) "OpenRelay Active (Default)" else "OpenRelay (Standby)",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = if (!turnConfig.useCustomTurn) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Built-in public TURN cluster (openrelay.metered.ca:80/443 UDP & TCP). Free and enabled by default.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (!turnConfig.useCustomTurn) MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = "Use Custom TURN Server",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Use private Coturn or custom TURN relay credentials",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = turnConfig.useCustomTurn,
-                            onCheckedChange = { checked ->
-                                val updated = turnConfig.copy(
-                                    useCustomTurn = checked,
-                                    customServer = customServerInput,
-                                    customUsername = customUserInput,
-                                    customCredential = customPassInput
-                                )
-                                onTurnConfigChanged(updated)
+                presetOptions.forEachIndexed { index, label ->
+                    SegmentedButton(
+                        selected = selectedPresetIndex == index,
+                        onClick = {
+                            when (index) {
+                                0 -> onDspSettingsChanged(AudioDspSettings(false, false, false, false))
+                                1 -> onDspSettingsChanged(AudioDspSettings(true, true, true, true))
+                                2 -> {
+                                    if (selectedPresetIndex != 2) {
+                                        onDspSettingsChanged(AudioDspSettings(true, false, false, false))
+                                    }
+                                }
                             }
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = presetOptions.size)
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelMedium
                         )
-                    }
-
-                    if (turnConfig.useCustomTurn) {
-                        OutlinedTextField(
-                            value = customServerInput,
-                            onValueChange = {
-                                customServerInput = it
-                                onTurnConfigChanged(turnConfig.copy(customServer = it))
-                            },
-                            label = { Text("TURN Server URL") },
-                            placeholder = { Text("turn:turn.example.com:3478") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = customUserInput,
-                            onValueChange = {
-                                customUserInput = it
-                                onTurnConfigChanged(turnConfig.copy(customUsername = it))
-                            },
-                            label = { Text("Username (optional)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = customPassInput,
-                            onValueChange = {
-                                customPassInput = it
-                                onTurnConfigChanged(turnConfig.copy(customCredential = it))
-                            },
-                            label = { Text("Password / Credential (optional)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedButton(
-                            onClick = {
-                                customServerInput = ""
-                                customUserInput = ""
-                                customPassInput = ""
-                                onTurnConfigChanged(
-                                    TurnConfig(
-                                        useCustomTurn = false,
-                                        customServer = "",
-                                        customUsername = "",
-                                        customCredential = ""
-                                    )
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Reset to OpenRelay Default")
-                        }
                     }
                 }
+            }
 
-                HorizontalDivider()
-
-                // App info
-                Row(
+            // Custom DSP Switches inside a Card
+            if (selectedPresetIndex == 2) {
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        DspToggleItem(
+                            title = "Noise Suppression",
+                            desc = "Attenuates ambient and background noise",
+                            checked = dspSettings.noiseSuppression,
+                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(noiseSuppression = it)) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        DspToggleItem(
+                            title = "Echo Cancellation",
+                            desc = "Prevents speaker and earpiece acoustic feedback",
+                            checked = dspSettings.echoCancellation,
+                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(echoCancellation = it)) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        DspToggleItem(
+                            title = "Auto Gain Control",
+                            desc = "Dynamically balances input microphone levels",
+                            checked = dspSettings.autoGainControl,
+                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(autoGainControl = it)) }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        DspToggleItem(
+                            title = "High-pass Filter",
+                            desc = "Eliminates low-frequency hum and rumble",
+                            checked = dspSettings.highpassFilter,
+                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(highpassFilter = it)) }
+                        )
+                    }
+                }
+            }
+
+            // Divider
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            // Section 2: Network Relay
+            Text(
+                text = "Network Relay",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        text = "Calla",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        text = "Use Custom TURN Server",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "v1.1.0 (arm64-v8a)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
+                        text = if (turnConfig.useCustomTurn) "Connecting via custom server" else "Using built-in OpenRelay automatically",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onTurnConfigChanged(
-                        turnConfig.copy(
+                Switch(
+                    checked = turnConfig.useCustomTurn,
+                    onCheckedChange = { checked ->
+                        val updated = turnConfig.copy(
+                            useCustomTurn = checked,
                             customServer = customServerInput,
                             customUsername = customUserInput,
                             customCredential = customPassInput
                         )
-                    )
-                    onDismiss()
-                }
-            ) {
-                Text("Close")
+                        onTurnConfigChanged(updated)
+                    }
+                )
             }
+
+            AnimatedVisibility(visible = turnConfig.useCustomTurn) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customServerInput,
+                        onValueChange = {
+                            customServerInput = it
+                            onTurnConfigChanged(turnConfig.copy(customServer = it))
+                        },
+                        label = { Text("TURN Server URL") },
+                        placeholder = { Text("turn:turn.example.com:3478") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = customUserInput,
+                        onValueChange = {
+                            customUserInput = it
+                            onTurnConfigChanged(turnConfig.copy(customUsername = it))
+                        },
+                        label = { Text("Username (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = customPassInput,
+                        onValueChange = {
+                            customPassInput = it
+                            onTurnConfigChanged(turnConfig.copy(customCredential = it))
+                        },
+                        label = { Text("Password / Credential (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedButton(
+                        onClick = {
+                            customServerInput = ""
+                            customUserInput = ""
+                            customPassInput = ""
+                            onTurnConfigChanged(
+                                TurnConfig(
+                                    useCustomTurn = false,
+                                    customServer = "",
+                                    customUsername = "",
+                                    customCredential = ""
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Reset to Built-in OpenRelay")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Footer with dynamic version string from BuildConfig
+            val dynamicVersionName = BuildConfig.VERSION_NAME
+            Text(
+                text = "Calla v$dynamicVersionName",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
         }
-    )
+    }
 }
 
 @Composable
