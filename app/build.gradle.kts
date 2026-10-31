@@ -19,6 +19,8 @@ android {
       abiFilters.add("arm64-v8a")
     }
 
+    resourceConfigurations.addAll(listOf("en"))
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
@@ -43,16 +45,32 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
+    }
+  }
+
+  packaging {
+    resources {
+      excludes += setOf(
+        "META-INF/AL2.0",
+        "META-INF/LGPL2.1",
+        "META-INF/LICENSE*",
+        "META-INF/NOTICE*",
+        "META-INF/DEPENDENCIES"
+      )
     }
   }
   compileOptions {

@@ -80,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -167,14 +168,17 @@ fun LobbyScreen(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
                                 .testTag("calla_header_logo"),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
                                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
                                 contentDescription = "Calla Logo",
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .scale(1.4f)
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
