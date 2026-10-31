@@ -1,81 +1,52 @@
-# Implementation Plan: Network Debug Logger
+# Implementation Plan: Xirsys TURN Integration & Auto ICE Restart Retry
 
-Menambahkan fitur **Network Debug Logger** untuk merekam, menampilkan secara real-time, menyalin, dan mengosongkan log event jaringan (WebSocket, WebRTC state, ICE Candidates, dan Connectivity changes) guna memudahkan analisis serta troubleshooting koneksi antar perangkat.
+Menyelesaikan masalah kegagalan koneksi WebRTC antar jaringan ("Connecting" -> "FAILED") yang disebabkan oleh Symmetric NAT pada ISP seluler/Wi-Fi. Mengintegrasikan **Xirsys TURN Service** yang stabil untuk menghasilkan kandidat `relay` (TURN) yang valid, serta menambahkan mekanisme **Auto ICE Restart Retry** hingga 3 kali saat terjadi timeout atau disconnect.
 
 ## User Review & Critical Decisions
 
-- **Confirmed Choice (Capacity)**: Menyimpan maksimum 500 entri log terbaru di memori untuk mencegah memory leak.
-- **Confirmed Choice (Viewer UI)**: Menggunakan Modal Bottom Sheet dengan tampilan font Monospace, opsi Auto-Scroll, serta aksi Copy & Clear.
-- **Default State**: Logging dinonaktifkan secara default untuk efisiensi memori, dan disimpan pengaturannya secara terpusat di `SettingsStore`.
+- **Confirmed Choice (TURN Provider)**: Mengintegrasikan Xirsys STUN/TURN global endpoints yang menjamin pemintasan Symmetric NAT / Carrier-Grade NAT (CGNAT).
+- **Confirmed Choice (Auto Reconnect)**: Otomatis melakukan pencobaan ulang ICE Restart hingga 3 kali saat status `FAILED` / `DISCONNECTED` terdeteksi sebelum menyerah dan menampilkan pesan error.
 
 ---
 
 ## 1. Overview & Core Concept
 
-Fitur **Network Debug Logger** memberikan transparansi diagnostik jaringan secara langsung dari aplikasi Calla. Pengguna dapat mengaktifkan logging saat mengalami kendala koneksi WebRTC/WebSocket, lalu menyalin log lengkap atau memantau status secara real-time melalui viewer sheet tanpa bantuan komputer/ADB.
+Berdasarkan analisis log jaringan, Host (`36.74.218.118`) dan Guest (`125.166.0.208`) hanya dapat menghasilkan kandidat `host` (LAN) dan `srflx` (STUN). Karena kedua penyedia internet berada di balik **Symmetric NAT**, koneksi langsung P2P tidak dapat dibentuk tanpa relay. Dengan menambahkan server **Xirsys TURN** (UDP + TCP di port 80/443), trafik suara di-relay dengan lancar. Jika terdapat kendala fluktuasi sinyal, mekanisme Auto ICE Restart Retry akan mencoba menyambungkan kembali hingga 3x secara otomatis.
 
 ---
 
-## 2. User Experience & Visual Design
-
-### Settings Screen Integration
-- Pada seksi **Network Relay** di Settings Sheet:
-  - Tambahkan toggle switch **"Enable Network Logs"**.
-  - Saat toggle diaktifkan (ON), tampilkan sub-panel aksi:
-    - **"View Real-time Logs"** (Membuka Bottom Sheet viewer)
-    - **"Copy Network Logs"** (Menyalin log ke clipboard dengan feedback Toast)
-    - **"Clear Logs"** (Mengosongkan riwayat log aktif)
-
-### Log Viewer Bottom Sheet
-- Sheet terpisah dengan header judul **"Network Logs"**, indikator badge entri (misal `42 / 500`), serta tombol aksi (Auto-scroll toggle & Clear).
-- Tampilan konten log menggunakan format `Monospace` (`FontFamily.Monospace`) dengan warna terstruktur:
-  - Timestamp: `[HH:mm:ss]`
-  - Tag/Category: `[WebSocket]`, `[WebRTC]`, `[ICE]`, `[Network]`
-  - Pesan detail & indikator status (Misal: `Connected`, `Failed: timeout`).
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Memory Safety (Circular Buffer)**:
-  - *Pendekatan*: Menggunakan buffer berukuran terbatas (maksimal 500 entri) yang dilindungi Thread-safe synchronization.
-  - *Alasan*: Mencegah konsumsi memori tak terbatas jika koneksi mengalami reconnect berulang.
-- **Reactive State Flow**:
-  - *Pendekatan*: Menyediakan `StateFlow<List<LogEntry>>` di `NetworkLogger` yang hanya diperbarui jika toggle aktif.
-  - *Alasan*: Komponen UI Compose dapat mendengarkan perubahan log secara real-time tanpa polling manual.
-
----
-
-## 4. Technical Architecture & Data Strategy
+## 2. Technical Architecture & Data Strategy
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       Calla App UI                          │
-│  SettingsSheet  ──►  NetworkLogViewerSheet (Monospace View) │
+│                        Calla App UI                         │
+│ - Status: "Connecting..." ──► "Reconnecting (Attempt 1/3)"  │
 └──────────────┬──────────────────────────────┬───────────────┘
                │                              │
                ▼                              ▼
 ┌──────────────────────────────┐ ┌────────────────────────────┐
-│       SettingsStore          │ │    NetworkLogger Singleton │
-│ (SharedPreferences/Flow)     │ │ - Circular Buffer (500 max)│
-│ - isLoggingEnabled: Boolean  │ │ - StateFlow<List<LogEntry>>│
+│         CallViewModel        │ │    NetworkLogger Singleton │
+│ - iceRestartRetryCount: 0..3 │ │ - Catat event STUN/TURN    │
+│ - autoIceRestartRetry()      │ │ - Catat status reconnect   │
 └──────────────┬───────────────┘ └──────────────┬─────────────┘
-               │                              ▲
-               ▼                              │
-┌─────────────────────────────────────────────┴───────────────┐
-│              Network & WebRTC Layer                         │
-│ - SignalingClient (WebSocket state & messages)              │
-│ - WebRTCClient (IceConnectionState, IceGatheringState)      │
-│ - ConnectivityObserver (Network Online/Offline transitions) │
+               │                              │
+               ▼                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        WebRTCClient                         │
+│ - STUN: global.stun.xirsys.com                              │
+│ - TURN: global.turn.xirsys.com (UDP/TCP port 80, 443, 3478) │
+│ - Automatic ICE Restart trigger                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Plan Details:
-1. **SettingsStore Integration**: Tambahkan `isLoggingEnabled` (StateFlow + SharedPreferences persistence).
-2. **NetworkLogger Utility**: Singleton `NetworkLogger` dengan timestamp formatter `[HH:mm:ss]`, method `log(tag, message)`, `clear()`, dan `getFormattedLogs()`.
-3. **Instrumentation**:
-   - `SignalingClient.kt`: Catat event `Connecting`, `Connected`, `Closed`, `Failure`, serta payload signaling (Offer, Answer, ICE batch).
-   - `WebRTCClient.kt`: Catat `onIceConnectionChange`, `onIceGatheringChange`, `onSignalingChange`, `onIceCandidate`.
-   - `ConnectivityObserver.kt` / `CallViewModel`: Catat perubahan status koneksi data/Wi-Fi.
-4. **UI Updates**: Update Settings screen dan tambahkan `NetworkLogViewerSheet`.
-5. **App Version**: Update version name di `build.gradle.kts` menjadi `1.4.0` (versionCode 10).
+1. **Xirsys TURN Configuration**:
+   - Di `WebRTCClient.kt`: Tambahkan daftar endpoint STUN/TURN Xirsys global yang beroperasi di UDP & TCP (port 80, 443, 3478) dengan kredensial terautentikasi.
+2. **Auto ICE Restart Retry Logic**:
+   - Di `CallViewModel.kt`:
+     - Tambahkan variabel `iceRestartRetryCount` (maksimal 3x).
+     - Saat `handleConnectionStatus` menerima status `FAILED` atau `DISCONNECTED` saat dalam panggilan:
+       - Jika `iceRestartRetryCount < 3`: Tingkatkan counter, ubah teks status UI menjadi `"Reconnecting WebRTC (Attempt X/3)..."`, lalu panggil `webRtcClient?.restartIce(...)` dan kirim offer restart ICE baru via signaling.
+       - Jika `iceRestartRetryCount >= 3`: Ubah status menjadi `FAILED` dan tampilkan error banner.
+     - Reset `iceRestartRetryCount = 0` begitu status berubah ke `CONNECTED`.
+3. **App Version**: Update `versionCode = 11` dan `versionName = "1.4.1"` di `build.gradle.kts`.

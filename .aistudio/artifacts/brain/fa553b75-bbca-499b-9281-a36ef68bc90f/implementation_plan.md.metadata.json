@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan created for Network Debug Logger feature including toggle, logger utility (WebSocket, WebRTC, ICE, Network events), clipboard exporter, auto-scroll monospace log viewer sheet, memory safety (500 max logs), and version update to 1.4.0.",
-  "updatedAt":  "2026-10-31T18:44:01.313234293Z",
+  "summary":  "Plan created to fix cross-network connection failures by integrating Xirsys TURN Service and adding 3x Auto ICE Restart Retry on connection failure/timeout.",
+  "updatedAt":  "2026-10-31T19:12:50.802723041Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

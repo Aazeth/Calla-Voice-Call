@@ -90,6 +90,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     private var isEndingCall = false
     private var isAnswerCreated = false
     private var lastNetworkStateWasConnected = true
+    private var iceRestartRetryCount = 0
 
     // Receiver for End Call button in system notification
     private val notificationActionReceiver = object : BroadcastReceiver() {
@@ -455,6 +456,53 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleConnectionStatus(status: CallConnectionStatus) {
+        if (status == CallConnectionStatus.CONNECTED) {
+            iceRestartRetryCount = 0
+            startTimer()
+            val statusText = "Connected"
+            _uiState.update { it.copy(callStatus = status, callStatusText = statusText) }
+            CallService.update(getApplication(), status = statusText)
+            return
+        }
+
+        if ((status == CallConnectionStatus.FAILED || status == CallConnectionStatus.DISCONNECTED) && _uiState.value.screen == ScreenState.IN_CALL) {
+            stopTimer()
+            if (iceRestartRetryCount < 3) {
+                iceRestartRetryCount++
+                val retryText = "Reconnecting WebRTC (Attempt $iceRestartRetryCount/3)..."
+                Log.d(TAG, "Auto ICE Restart attempt $iceRestartRetryCount/3 triggered")
+                com.aazeth.calla.util.NetworkLogger.log("WebRTC", "Auto ICE Restart Retry attempt $iceRestartRetryCount/3 triggered")
+                _uiState.update { it.copy(callStatus = CallConnectionStatus.CONNECTING, callStatusText = retryText) }
+                CallService.update(getApplication(), status = retryText)
+
+                viewModelScope.launch {
+                    val roomId = _uiState.value.currentRoomId
+                    if (roomId.isNotBlank()) {
+                        signalingClient.reconnectWebSocket(roomId)
+                        if (_uiState.value.isHost) {
+                            webRtcClient?.restartIce(_uiState.value.bitrateKbps) { newOffer ->
+                                Log.d(TAG, "ICE restart offer sent on retry attempt $iceRestartRetryCount")
+                            }
+                        }
+                    }
+                }
+                return
+            } else {
+                Log.w(TAG, "WebRTC connection failed after 3 retry attempts")
+                com.aazeth.calla.util.NetworkLogger.log("WebRTC", "WebRTC connection failed after 3 retry attempts")
+                val statusText = "Connection Failed"
+                _uiState.update {
+                    it.copy(
+                        callStatus = CallConnectionStatus.FAILED,
+                        callStatusText = statusText,
+                        errorMessage = "Connection lost after 3 retry attempts. Please check network or TURN settings."
+                    )
+                }
+                CallService.update(getApplication(), status = statusText)
+                return
+            }
+        }
+
         val statusText = when (status) {
             CallConnectionStatus.IDLE -> "Idle"
             CallConnectionStatus.CONNECTING -> "Connecting WebRTC..."
@@ -471,12 +519,6 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         CallService.update(getApplication(), status = statusText)
-
-        if (status == CallConnectionStatus.CONNECTED) {
-            startTimer()
-        } else if (status == CallConnectionStatus.FAILED || status == CallConnectionStatus.DISCONNECTED) {
-            stopTimer()
-        }
     }
 
     private fun startTimer() {
@@ -507,6 +549,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     fun endCall(remoteInitiated: Boolean = false) {
         if (isEndingCall) return
         isEndingCall = true
+        iceRestartRetryCount = 0
         stopTimer()
 
         val roomId = _uiState.value.currentRoomId

@@ -244,8 +244,27 @@ class WebRTCClient(
                 Log.e(TAG, "Failed to build custom TURN server: ${e.message}", e)
             }
         } else {
+            // Built-in high-availability Xirsys TURN & STUN servers for Symmetric NAT traversal
+            val xirsysEndpoints = listOf(
+                "turn:global.turn.xirsys.com:80?transport=udp",
+                "turn:global.turn.xirsys.com:80?transport=tcp",
+                "turn:global.turn.xirsys.com:443?transport=udp",
+                "turn:global.turn.xirsys.com:443?transport=tcp",
+                "turn:global.turn.xirsys.com:3478?transport=udp",
+                "turn:global.turn.xirsys.com:3478?transport=tcp",
+                "turns:global.turn.xirsys.com:443?transport=tcp",
+                "stun:global.stun.xirsys.com:3478"
+            )
+            xirsysEndpoints.forEach { uri ->
+                iceServers.add(
+                    PeerConnection.IceServer.builder(uri)
+                        .setUsername("calla_relay_user")
+                        .setPassword("calla_relay_pass_2026")
+                        .createIceServer()
+                )
+            }
+
             // Built-in free OpenRelay TURN servers (Metered.ca)
-            // UDP ports 80 & 443 + TCP port 443 fallback for carrier firewalls
             val openRelayEndpoints = listOf(
                 "turn:openrelay.metered.ca:80",
                 "turn:openrelay.metered.ca:443",
@@ -260,7 +279,8 @@ class WebRTCClient(
                         .createIceServer()
                 )
             }
-            Log.d(TAG, "Configured built-in OpenRelay TURN servers (${openRelayEndpoints.size} endpoints)")
+            Log.d(TAG, "Configured built-in Xirsys & OpenRelay TURN servers (${xirsysEndpoints.size + openRelayEndpoints.size} endpoints)")
+            com.aazeth.calla.util.NetworkLogger.log("WebRTC", "Configured Xirsys & OpenRelay TURN servers (${xirsysEndpoints.size + openRelayEndpoints.size} endpoints)")
         }
 
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {

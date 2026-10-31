@@ -1,0 +1,41 @@
+Host Log:
+[02:00:07] [System] Network logging enabled
+[02:00:09] [WebRTC] SignalingState changed: HAVE_LOCAL_OFFER
+[02:00:09] [WebRTC] IceGatheringState changed: GATHERING
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:1247049314 1 udp 2122260223 192.168.11.129 33545 typ host generation 0 ufrag 9L8f network-id 3 network-cost 10
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:1539545451 1 udp 2122129151 127.0.0.1 41469 typ host generation 0 ufrag 9L8f network-id 1
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:1257212899 1 udp 2122202367 ::1 43296 typ host generation 0 ufrag 9L8f network-id 2
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:2770850380 1 udp 1686052607 36.74.218.118 33545 typ srflx raddr 192.168.11.129 rport 33545 generation 0 ufrag 9L8f network-id 3 network-cost 10
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:2775141887 1 tcp 1518149375 127.0.0.1 38013 typ host tcptype passive generation 0 ufrag 9L8f network-id 1
+[02:00:09] [ICE] Local candidate generated: 0 - candidate:3024445303 1 tcp 1518222591 ::1 52085 typ host tcptype passive generation 0 ufrag 9L8f network-id 2
+[02:00:10] [WebSocket] Connected to topic: calla_v1_room_166291
+[02:00:36] [WebSocket] Incoming [join] from guest
+[02:00:37] [WebSocket] Incoming [answer] from guest
+[02:00:37] [WebRTC] SignalingState changed: STABLE
+[02:00:37] [WebRTC] IceConnectionState changed: CHECKING
+[02:00:37] [WebSocket] Incoming [ice_batch] from guest
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:1100461722 1 udp 2122260223 192.168.1.20 35754 typ host generation 0 ufrag UxA+ network-id 4 network-cost 10
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:1100461722 1 udp 2122194687 192.168.1.20 36471 typ host generation 0 ufrag UxA+ network-id 3 network-cost 900
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:2953252992 1 udp 2122063615 127.0.0.1 57182 typ host generation 0 ufrag UxA+ network-id 1
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:2703950344 1 udp 2122136831 ::1 39158 typ host generation 0 ufrag UxA+ network-id 2
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:1323522983 1 udp 1686052607 125.166.0.208 28109 typ srflx raddr 192.168.1.20 rport 35754 generation 0 ufrag UxA+ network-id 4 network-cost 10
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:1320010772 1 tcp 1518083839 127.0.0.1 37083 typ host tcptype passive generation 0 ufrag UxA+ network-id 1
+[02:00:37] [ICE] Added remote candidate: 0 - candidate:1602344604 1 tcp 1518157055 ::1 59017 typ host tcptype passive generation 0 ufrag UxA+ network-id 2
+[02:00:52] [WebRTC] IceConnectionState changed: FAILED
+
+Guest Log:
+[02:01:37] [WebSocket] Connected to topic: calla_v1_room_384625
+[02:01:39] [WebSocket] Incoming [offer] from host
+[02:01:39] [WebRTC] SignalingState changed: HAVE_REMOTE_OFFER
+[02:01:39] [WebRTC] SignalingState changed: STABLE
+[02:01:39] [WebRTC] IceGatheringState changed: GATHERING
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:3567922793 1 udp 2122260223 192.168.11.129 46533 typ host generation 0 ufrag zYEW network-id 3 network-cost 10
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:3309158752 1 udp 2122129151 127.0.0.1 33645 typ host generation 0 ufrag zYEW network-id 1
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:3557938152 1 udp 2122202367 ::1 40169 typ host generation 0 ufrag zYEW network-id 2
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:1004112455 1 udp 1686052607 36.74.218.118 46533 typ srflx raddr 192.168.11.129 rport 46533 generation 0 ufrag zYEW network-id 3 network-cost 10
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:999757300 1 tcp 1518149375 127.0.0.1 48995 typ host tcptype passive generation 0 ufrag zYEW network-id 1
+[02:01:39] [ICE] Local candidate generated: 0 - candidate:716900220 1 tcp 1518222591 ::1 59525 typ host tcptype passive generation 0 ufrag zYEW network-id 2
+[02:02:16] [WebSocket] Incoming [bye] from host
+[02:02:16] [WebRTC] IceConnectionState changed: CLOSED
+[02:02:16] [WebRTC] SignalingState changed: CLOSED
+[02:02:16] [WebSocket] Closed:  (code: 1000)
