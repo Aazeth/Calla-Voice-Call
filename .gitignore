@@ -3,6 +3,8 @@
 .kotlin
 /local.properties
 /.idea/caches
+/public/assets/aistudio
+/.aistudio
 /.idea/libraries
 /.idea/modules.xml
 /.idea/workspace.xml
