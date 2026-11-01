@@ -2,8 +2,12 @@ name: Build Calla Release APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-    tags: [ "v*" ]
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - '.github/**'
   workflow_dispatch:
 
 jobs:
@@ -32,6 +36,7 @@ jobs:
           STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: |
+          rm -f my-upload-key.jks
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding release keystore from GitHub Secrets..."
             echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
@@ -48,7 +53,7 @@ jobs:
               -dname "CN=Calla, OU=Voice, O=Calla, L=Tokyo, ST=Tokyo, C=JP"
           fi
 
-      - name: Build Release and Debug APKs
+      - name: Build Release APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
@@ -63,3 +68,4 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           retention-days: 14
           if-no-files-found: error
+          
