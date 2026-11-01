@@ -566,4 +566,41 @@ class WebRTCClient(
             Log.e(TAG, "Error closing WebRTCClient", e)
         }
     }
+
+    fun queryRttStats(onRttCalculated: (Long?) -> Unit) {
+        val pc = peerConnection ?: run {
+            onRttCalculated(null)
+            return
+        }
+        pc.getStats { report ->
+            var rttMs: Long? = null
+            for (stat in report.statsMap.values) {
+                if (stat.type == "candidate-pair" && stat.members.containsKey("currentRoundTripTime")) {
+                    val currentRtt = stat.members["currentRoundTripTime"]
+                    if (currentRtt is Double) {
+                        rttMs = (currentRtt * 1000).toLong()
+                        break
+                    } else if (currentRtt is Number) {
+                        rttMs = (currentRtt.toDouble() * 1000).toLong()
+                        break
+                    }
+                }
+            }
+            if (rttMs == null) {
+                for (stat in report.statsMap.values) {
+                    if (stat.type == "remote-inbound-rtp" && stat.members.containsKey("roundTripTime")) {
+                        val rtt = stat.members["roundTripTime"]
+                        if (rtt is Double) {
+                            rttMs = (rtt * 1000).toLong()
+                            break
+                        } else if (rtt is Number) {
+                            rttMs = (rtt.toDouble() * 1000).toLong()
+                            break
+                        }
+                    }
+                }
+            }
+            onRttCalculated(rttMs)
+        }
+    }
 }

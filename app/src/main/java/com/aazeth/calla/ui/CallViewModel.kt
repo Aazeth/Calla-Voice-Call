@@ -57,7 +57,8 @@ data class CallUiState(
     val errorMessage: String? = null,
     val isLoading: Boolean = false,
     val isLoggingEnabled: Boolean = false,
-    val showAudioDspDialog: Boolean = false
+    val showAudioDspDialog: Boolean = false,
+    val pingMs: Long? = null
 )
 
 class CallViewModel(application: Application) : AndroidViewModel(application) {
@@ -87,6 +88,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
+    private var pingJob: Job? = null
     private var isEndingCall = false
     private var isAnswerCreated = false
     private var lastNetworkStateWasConnected = true
@@ -459,6 +461,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         if (status == CallConnectionStatus.CONNECTED) {
             iceRestartRetryCount = 0
             startTimer()
+            startPingPolling()
             val statusText = "Connected"
             _uiState.update { it.copy(callStatus = status, callStatusText = statusText) }
             CallService.update(getApplication(), status = statusText)
@@ -467,6 +470,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
 
         if ((status == CallConnectionStatus.FAILED || status == CallConnectionStatus.DISCONNECTED) && _uiState.value.screen == ScreenState.IN_CALL) {
             stopTimer()
+            stopPingPolling()
             if (iceRestartRetryCount < 3) {
                 iceRestartRetryCount++
                 val retryText = "Reconnecting WebRTC (Attempt $iceRestartRetryCount/3)..."
@@ -536,6 +540,24 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = null
     }
 
+    private fun startPingPolling() {
+        pingJob?.cancel()
+        pingJob = viewModelScope.launch {
+            while (isActive) {
+                webRtcClient?.queryRttStats { rtt ->
+                    _uiState.update { it.copy(pingMs = rtt) }
+                }
+                delay(2000L)
+            }
+        }
+    }
+
+    private fun stopPingPolling() {
+        pingJob?.cancel()
+        pingJob = null
+        _uiState.update { it.copy(pingMs = null) }
+    }
+
     fun toggleMute() {
         val muted = webRtcClient?.toggleMute() ?: false
         _uiState.update { it.copy(isMicMuted = muted) }
@@ -551,6 +573,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         isEndingCall = true
         iceRestartRetryCount = 0
         stopTimer()
+        stopPingPolling()
 
         val roomId = _uiState.value.currentRoomId
         val context = getApplication<Application>()

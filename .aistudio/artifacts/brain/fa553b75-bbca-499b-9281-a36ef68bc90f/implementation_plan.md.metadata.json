@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan created to fix cross-network connection failures by integrating Xirsys TURN Service and adding 3x Auto ICE Restart Retry on connection failure/timeout.",
-  "updatedAt":  "2026-10-31T19:12:50.802723041Z",
+  "summary":  "Plan for adding a top-center ping indicator badge on the Call Screen with latency measurement and quality color coding",
+  "updatedAt":  "2026-11-01T07:29:23.005390666Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

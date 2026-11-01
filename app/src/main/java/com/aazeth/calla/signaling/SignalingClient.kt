@@ -171,19 +171,32 @@ class SignalingClient(context: Context) {
         isHost: Boolean,
         candidate: IceCandidate
     ) {
+        val count: Int
         synchronized(pendingCandidates) {
             pendingCandidates.add(candidate)
+            count = pendingCandidates.size
         }
-        candidateFlushJob?.cancel()
-        candidateFlushJob = scope.launch {
-            delay(150) // Debounce/buffer burst of ICE candidates for 150ms
-            val candidatesToSend = synchronized(pendingCandidates) {
-                val list = pendingCandidates.toList()
-                pendingCandidates.clear()
-                list
-            }
-            if (candidatesToSend.isEmpty()) return@launch
 
+        if (count >= 5) {
+            candidateFlushJob?.cancel()
+            flushCandidates(roomId, isHost)
+        } else if (candidateFlushJob?.isActive != true) {
+            candidateFlushJob = scope.launch {
+                delay(150)
+                flushCandidates(roomId, isHost)
+            }
+        }
+    }
+
+    private fun flushCandidates(roomId: String, isHost: Boolean) {
+        val candidatesToSend = synchronized(pendingCandidates) {
+            val list = pendingCandidates.toList()
+            pendingCandidates.clear()
+            list
+        }
+        if (candidatesToSend.isEmpty()) return
+
+        scope.launch {
             try {
                 val candidateArray = JSONArray()
                 for (c in candidatesToSend) {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -590,7 +591,46 @@ fun InCallScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Ping Indicator Mini Pill Badge (Top-Center)
+                val pingVal = uiState.pingMs
+                val (pingDotColor, pingTextColor, pingText) = when {
+                    pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
+                    pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                    pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                    else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .padding(bottom = 10.dp)
+                        .testTag("ping_indicator_badge")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(pingDotColor)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = pingText,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = pingTextColor
+                        )
+                    }
+                }
 
                 Surface(
                     shape = RoundedCornerShape(16.dp),
