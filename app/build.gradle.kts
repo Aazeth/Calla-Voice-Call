@@ -11,8 +11,8 @@ android {
     applicationId = "com.aazeth.calla"
     minSdk = 24
     targetSdk = 36
-    versionCode = 12
-    versionName = "1.5.0"
+    versionCode = 13
+    versionName = "1.6.0"
 
     ndk {
       abiFilters.clear()

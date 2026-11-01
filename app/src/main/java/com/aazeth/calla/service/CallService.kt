@@ -30,6 +30,7 @@ class CallService : Service() {
         const val EXTRA_PEER_NAME = "extra_peer_name"
         const val EXTRA_BITRATE_KBPS = "extra_bitrate_kbps"
         const val EXTRA_STATUS = "extra_status"
+        const val EXTRA_EXPAND_CALL = "extra_expand_call"
 
         fun start(
             context: Context,
@@ -104,14 +105,21 @@ class CallService : Service() {
                     startForegroundWithNotification()
                 }
                 ACTION_UPDATE_CALL -> {
-                    intent.getStringExtra(EXTRA_STATUS)?.let { currentStatus = it }
-                    intent.getStringExtra(EXTRA_PEER_NAME)?.let { currentPeerName = it }
-                    val notification = buildNotification()
-                    val notificationManager = getSystemService(NotificationManager::class.java)
-                    notificationManager?.notify(NOTIFICATION_ID, notification)
+                    val newStatus = intent.getStringExtra(EXTRA_STATUS)
+                    if (newStatus == "Idle" || newStatus == "Ended" || newStatus == "Stopped") {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        val notificationManager = getSystemService(NotificationManager::class.java)
+                        notificationManager?.cancel(NOTIFICATION_ID)
+                        stopSelf()
+                    } else {
+                        newStatus?.let { currentStatus = it }
+                        intent.getStringExtra(EXTRA_PEER_NAME)?.let { currentPeerName = it }
+                        val notification = buildNotification()
+                        val notificationManager = getSystemService(NotificationManager::class.java)
+                        notificationManager?.notify(NOTIFICATION_ID, notification)
+                    }
                 }
                 ACTION_STOP_FROM_NOTIFICATION -> {
-                    // User pressed "End Call" on the notification action button
                     sendBroadcast(Intent(ACTION_CALL_ENDED_FROM_NOTIFICATION).apply {
                         setPackage(packageName)
                     })
@@ -121,7 +129,6 @@ class CallService : Service() {
                     stopSelf()
                 }
                 ACTION_STOP_CALL -> {
-                    // Initiated internally from ViewModel, just stop foreground & service
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     val notificationManager = getSystemService(NotificationManager::class.java)
                     notificationManager?.cancel(NOTIFICATION_ID)
@@ -159,7 +166,10 @@ class CallService : Service() {
 
     private fun buildNotification(): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_EXPAND_CALL, true)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,

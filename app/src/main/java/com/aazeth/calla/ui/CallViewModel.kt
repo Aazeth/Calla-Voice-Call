@@ -58,7 +58,8 @@ data class CallUiState(
     val isLoading: Boolean = false,
     val isLoggingEnabled: Boolean = false,
     val showAudioDspDialog: Boolean = false,
-    val pingMs: Long? = null
+    val pingMs: Long? = null,
+    val isMinimized: Boolean = false
 )
 
 class CallViewModel(application: Application) : AndroidViewModel(application) {
@@ -192,6 +193,14 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to register network callback: ${e.message}")
         }
+    }
+
+    fun minimizeCall() {
+        _uiState.update { it.copy(isMinimized = true) }
+    }
+
+    fun expandCall() {
+        _uiState.update { it.copy(isMinimized = false) }
     }
 
     fun setNickname(name: String) {
@@ -522,7 +531,9 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        CallService.update(getApplication(), status = statusText)
+        if (_uiState.value.screen == ScreenState.IN_CALL && !isEndingCall && status != CallConnectionStatus.IDLE) {
+            CallService.update(getApplication(), status = statusText)
+        }
     }
 
     private fun startTimer() {
@@ -592,6 +603,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     screen = ScreenState.LOBBY,
+                    isMinimized = false,
                     currentRoomId = "",
                     isHost = false,
                     peerName = "",

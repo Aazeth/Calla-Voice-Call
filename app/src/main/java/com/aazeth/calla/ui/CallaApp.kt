@@ -40,8 +40,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.Public
@@ -131,31 +133,31 @@ fun CallaApp(
         )
     }
 
-    when (uiState.screen) {
-        ScreenState.LOBBY -> {
-            LobbyScreen(
-                uiState = uiState,
-                onNicknameChange = viewModel::setNickname,
-                onBitrateChange = viewModel::setBitrate,
-                onJoinCodeChange = viewModel::setJoinCodeInput,
-                onCreateRoom = viewModel::createRoom,
-                onJoinRoom = viewModel::joinRoom,
-                onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
-                onDismissError = viewModel::dismissError
-            )
+    if (uiState.screen == ScreenState.IN_CALL && !uiState.isMinimized) {
+        BackHandler {
+            viewModel.minimizeCall()
         }
-        ScreenState.IN_CALL -> {
-            BackHandler {
-                viewModel.endCall()
-            }
-            InCallScreen(
-                uiState = uiState,
-                onToggleMute = viewModel::toggleMute,
-                onToggleSpeaker = viewModel::cycleAudioRoute,
-                onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
-                onEndCall = { viewModel.endCall() }
-            )
-        }
+        InCallScreen(
+            uiState = uiState,
+            onMinimizeCall = viewModel::minimizeCall,
+            onToggleMute = viewModel::toggleMute,
+            onToggleSpeaker = viewModel::cycleAudioRoute,
+            onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
+            onEndCall = { viewModel.endCall() }
+        )
+    } else {
+        LobbyScreen(
+            uiState = uiState,
+            onNicknameChange = viewModel::setNickname,
+            onBitrateChange = viewModel::setBitrate,
+            onJoinCodeChange = viewModel::setJoinCodeInput,
+            onCreateRoom = viewModel::createRoom,
+            onJoinRoom = viewModel::joinRoom,
+            onExpandCall = viewModel::expandCall,
+            onEndCall = viewModel::endCall,
+            onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
+            onDismissError = viewModel::dismissError
+        )
     }
 }
 
@@ -168,6 +170,8 @@ fun LobbyScreen(
     onJoinCodeChange: (String) -> Unit,
     onCreateRoom: () -> Unit,
     onJoinRoom: () -> Unit,
+    onExpandCall: () -> Unit,
+    onEndCall: () -> Unit,
     onOpenSettings: () -> Unit,
     onDismissError: () -> Unit
 ) {
@@ -235,6 +239,75 @@ fun LobbyScreen(
                 .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Ongoing Active Call Banner (when minimized)
+            AnimatedVisibility(visible = uiState.currentRoomId.isNotBlank()) {
+                Surface(
+                    onClick = onExpandCall,
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("ongoing_call_banner")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF4CAF50))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Ongoing Call • Room #${uiState.currentRoomId}",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                val minutes = uiState.callDurationSeconds / 60
+                                val seconds = uiState.callDurationSeconds % 60
+                                val timeStr = String.format("%02d:%02d", minutes, seconds)
+                                Text(
+                                    text = "${uiState.peerName.ifBlank { "Connected" }} • $timeStr (Tap to return)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = onExpandCall,
+                                modifier = Modifier.testTag("expand_call_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInFull,
+                                    contentDescription = "Expand Call Screen",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            IconButton(
+                                onClick = onEndCall,
+                                modifier = Modifier.testTag("banner_end_call_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CallEnd,
+                                    contentDescription = "End Call",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             // Error banner if any
             AnimatedVisibility(visible = uiState.errorMessage != null) {
                 Surface(
@@ -567,6 +640,7 @@ fun LobbyScreen(
 @Composable
 fun InCallScreen(
     uiState: CallUiState,
+    onMinimizeCall: () -> Unit,
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -586,59 +660,90 @@ fun InCallScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Bar: Room Code & Action buttons
+            // Top Bar: Minimize (Top-Left), Ping (Top-Center), Settings (Top-Right)
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Ping Indicator Mini Pill Badge (Top-Center)
-                val pingVal = uiState.pingMs
-                val (pingDotColor, pingTextColor, pingText) = when {
-                    pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
-                    pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                    pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                    else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                Row(
                     modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .testTag("ping_indicator_badge")
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Top-Left: Minimize Button
+                    IconButton(
+                        onClick = onMinimizeCall,
+                        modifier = Modifier.testTag("minimize_call_button")
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(pingDotColor)
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Minimize Call",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(32.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = pingText,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            color = pingTextColor
+                    }
+
+                    // Top-Center: Ping Indicator Mini Pill Badge
+                    val pingVal = uiState.pingMs
+                    val (pingDotColor, pingTextColor, pingText) = when {
+                        pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
+                        pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.testTag("ping_indicator_badge")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(pingDotColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = pingText,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = pingTextColor
+                            )
+                        }
+                    }
+
+                    // Top-Right: Settings Button
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.testTag("incall_audio_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Audio Processing & Settings",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
 
+                // Room Code Card (Cleaned up)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
@@ -658,7 +763,7 @@ fun InCallScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(20.dp))
 
                         FilledTonalIconButton(
                             onClick = {
@@ -672,21 +777,6 @@ fun InCallScreen(
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "Copy Room Code",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        FilledTonalIconButton(
-                            onClick = onOpenSettings,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .testTag("incall_audio_settings_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = "Audio Processing & Settings",
                                 modifier = Modifier.size(20.dp)
                             )
                         }

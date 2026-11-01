@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.aazeth.calla.service.CallService
 import com.aazeth.calla.ui.CallViewModel
 import com.aazeth.calla.ui.CallaApp
 import com.aazeth.calla.ui.theme.MyApplicationTheme
@@ -31,10 +32,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        if (intent?.getBooleanExtra(CallService.EXTRA_EXPAND_CALL, false) == true) {
+            callViewModel.expandCall()
+        }
+
         setContent {
             MyApplicationTheme {
                 MainContent(callViewModel = callViewModel)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(CallService.EXTRA_EXPAND_CALL, false)) {
+            callViewModel.expandCall()
         }
     }
 }
