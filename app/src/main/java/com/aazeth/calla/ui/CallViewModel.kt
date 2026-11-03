@@ -34,6 +34,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 
+import com.aazeth.calla.webrtc.DspPreset
+
 enum class ScreenState {
     LOBBY,
     IN_CALL
@@ -68,10 +70,13 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         private const val TAG = "CallViewModel"
         private const val PREFS_NAME = "calla_preferences"
         private const val KEY_NICKNAME = "saved_nickname"
+        private const val KEY_DSP_PRESET = "dsp_preset_enum"
         private const val KEY_DSP_NOISE = "dsp_noise_suppression"
         private const val KEY_DSP_ECHO = "dsp_echo_cancellation"
         private const val KEY_DSP_AGC = "dsp_auto_gain_control"
         private const val KEY_DSP_HIGHPASS = "dsp_highpass_filter"
+        private const val KEY_DSP_LIMITER_CEILING = "dsp_limiter_ceiling_db"
+        private const val KEY_DSP_AGC_TARGET = "dsp_agc_target_level_db"
         private const val KEY_USE_CUSTOM_TURN = "turn_use_custom"
         private const val KEY_CUSTOM_TURN_SERVER = "turn_custom_server"
         private const val KEY_CUSTOM_TURN_USER = "turn_custom_user"
@@ -151,12 +156,18 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             "User #" + (100..999).random()
         }
 
-        // Load Audio DSP settings (Default: all false / Raw Audio Mode)
+        // Load Audio DSP settings (Default: Raw Audio Mode)
+        val presetStr = prefs.getString(KEY_DSP_PRESET, DspPreset.RAW.name) ?: DspPreset.RAW.name
+        val savedPreset = try { DspPreset.valueOf(presetStr) } catch (_: Exception) { DspPreset.RAW }
+
         val dsp = AudioDspSettings(
             noiseSuppression = prefs.getBoolean(KEY_DSP_NOISE, false),
             echoCancellation = prefs.getBoolean(KEY_DSP_ECHO, false),
             autoGainControl = prefs.getBoolean(KEY_DSP_AGC, false),
-            highpassFilter = prefs.getBoolean(KEY_DSP_HIGHPASS, false)
+            highpassFilter = prefs.getBoolean(KEY_DSP_HIGHPASS, false),
+            limiterCeilingDb = prefs.getFloat(KEY_DSP_LIMITER_CEILING, -2.0f),
+            agcTargetLevelDb = prefs.getFloat(KEY_DSP_AGC_TARGET, -3.0f),
+            preset = savedPreset
         )
 
         // Load TURN relay settings (Default: OpenRelay built-in)
@@ -237,10 +248,13 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     fun updateDspSettings(dsp: AudioDspSettings) {
         _uiState.update { it.copy(dspSettings = dsp) }
         prefs.edit()
+            .putString(KEY_DSP_PRESET, dsp.preset.name)
             .putBoolean(KEY_DSP_NOISE, dsp.noiseSuppression)
             .putBoolean(KEY_DSP_ECHO, dsp.echoCancellation)
             .putBoolean(KEY_DSP_AGC, dsp.autoGainControl)
             .putBoolean(KEY_DSP_HIGHPASS, dsp.highpassFilter)
+            .putFloat(KEY_DSP_LIMITER_CEILING, dsp.limiterCeilingDb)
+            .putFloat(KEY_DSP_AGC_TARGET, dsp.agcTargetLevelDb)
             .apply()
     }
 

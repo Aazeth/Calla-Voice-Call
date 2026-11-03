@@ -111,6 +111,7 @@ import androidx.compose.ui.unit.sp
 import com.aazeth.calla.webrtc.AudioDspSettings
 import com.aazeth.calla.webrtc.AudioRoute
 import com.aazeth.calla.webrtc.CallConnectionStatus
+import com.aazeth.calla.webrtc.DspPreset
 import com.aazeth.calla.webrtc.TurnConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1087,28 +1088,17 @@ fun SettingsBottomSheet(
 
             // Section 1: Audio DSP
             Text(
-                text = "Audio DSP",
+                text = "Audio DSP Processing",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold
                 ),
                 color = MaterialTheme.colorScheme.primary
             )
 
-            val isRaw = !dspSettings.noiseSuppression &&
-                    !dspSettings.echoCancellation &&
-                    !dspSettings.autoGainControl &&
-                    !dspSettings.highpassFilter
-
-            val isBalanced = dspSettings.noiseSuppression &&
-                    dspSettings.echoCancellation &&
-                    dspSettings.autoGainControl &&
-                    dspSettings.highpassFilter
-
-            // Selected preset: 0 = Raw Audio (Default), 1 = Balanced, 2 = Custom
-            val selectedPresetIndex = when {
-                isRaw -> 0
-                isBalanced -> 1
-                else -> 2
+            val selectedPresetIndex = when (dspSettings.preset) {
+                DspPreset.RAW -> 0
+                DspPreset.BALANCED -> 1
+                DspPreset.CUSTOM -> 2
             }
 
             val presetOptions = listOf("Raw Audio", "Balanced", "Custom")
@@ -1121,13 +1111,25 @@ fun SettingsBottomSheet(
                         selected = selectedPresetIndex == index,
                         onClick = {
                             when (index) {
-                                0 -> onDspSettingsChanged(AudioDspSettings(false, false, false, false))
-                                1 -> onDspSettingsChanged(AudioDspSettings(true, true, true, true))
-                                2 -> {
-                                    if (selectedPresetIndex != 2) {
-                                        onDspSettingsChanged(AudioDspSettings(true, false, false, false))
-                                    }
-                                }
+                                0 -> onDspSettingsChanged(
+                                    dspSettings.copy(
+                                        noiseSuppression = false,
+                                        echoCancellation = false,
+                                        autoGainControl = false,
+                                        highpassFilter = false,
+                                        preset = DspPreset.RAW
+                                    )
+                                )
+                                1 -> onDspSettingsChanged(
+                                    dspSettings.copy(
+                                        noiseSuppression = true,
+                                        echoCancellation = true,
+                                        autoGainControl = true,
+                                        highpassFilter = true,
+                                        preset = DspPreset.BALANCED
+                                    )
+                                )
+                                2 -> onDspSettingsChanged(dspSettings.copy(preset = DspPreset.CUSTOM))
                             }
                         },
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = presetOptions.size)
@@ -1140,53 +1142,189 @@ fun SettingsBottomSheet(
                 }
             }
 
-            // Custom DSP Switches inside a Card
-            if (selectedPresetIndex == 2) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+            // DSP Switches Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    DspToggleItem(
+                        title = "Noise Suppression",
+                        desc = "Attenuates ambient and background noise",
+                        checked = dspSettings.noiseSuppression,
+                        onCheckedChange = {
+                            onDspSettingsChanged(
+                                dspSettings.copy(
+                                    noiseSuppression = it,
+                                    preset = DspPreset.CUSTOM
+                                )
+                            )
+                        }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    DspToggleItem(
+                        title = "Echo Cancellation",
+                        desc = "Prevents speaker and earpiece acoustic feedback",
+                        checked = dspSettings.echoCancellation,
+                        onCheckedChange = {
+                            onDspSettingsChanged(
+                                dspSettings.copy(
+                                    echoCancellation = it,
+                                    preset = DspPreset.CUSTOM
+                                )
+                            )
+                        }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    DspToggleItem(
+                        title = "Auto Gain Control",
+                        desc = "Dynamically balances input microphone levels",
+                        checked = dspSettings.autoGainControl,
+                        onCheckedChange = {
+                            onDspSettingsChanged(
+                                dspSettings.copy(
+                                    autoGainControl = it,
+                                    preset = DspPreset.CUSTOM
+                                )
+                            )
+                        }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    DspToggleItem(
+                        title = "High-pass Filter",
+                        desc = "Eliminates low-frequency hum and rumble",
+                        checked = dspSettings.highpassFilter,
+                        onCheckedChange = {
+                            onDspSettingsChanged(
+                                dspSettings.copy(
+                                    highpassFilter = it,
+                                    preset = DspPreset.CUSTOM
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+
+            // Limiter & AGC Levels Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Limiter Ceiling Control
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DspToggleItem(
-                            title = "Noise Suppression",
-                            desc = "Attenuates ambient and background noise",
-                            checked = dspSettings.noiseSuppression,
-                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(noiseSuppression = it)) }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        DspToggleItem(
-                            title = "Echo Cancellation",
-                            desc = "Prevents speaker and earpiece acoustic feedback",
-                            checked = dspSettings.echoCancellation,
-                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(echoCancellation = it)) }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        DspToggleItem(
-                            title = "Auto Gain Control",
-                            desc = "Dynamically balances input microphone levels",
-                            checked = dspSettings.autoGainControl,
-                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(autoGainControl = it)) }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        DspToggleItem(
-                            title = "High-pass Filter",
-                            desc = "Eliminates low-frequency hum and rumble",
-                            checked = dspSettings.highpassFilter,
-                            onCheckedChange = { onDspSettingsChanged(dspSettings.copy(highpassFilter = it)) }
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Limiter Ceiling",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Clips volume spikes to prevent distortion",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "${String.format("%.1f", dspSettings.limiterCeilingDb)} dBFS",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
+
+                    Slider(
+                        value = dspSettings.limiterCeilingDb,
+                        onValueChange = {
+                            val rounded = (Math.round(it * 2.0f) / 2.0f)
+                            onDspSettingsChanged(dspSettings.copy(limiterCeilingDb = rounded))
+                        },
+                        valueRange = -6.0f..-1.0f,
+                        steps = 9,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("limiter_ceiling_slider")
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // AGC Target Level Control
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "AGC Target Output Level",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Target vocal level (Max gain boost 12 dB)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "${String.format("%.1f", dspSettings.agcTargetLevelDb)} dBFS",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Slider(
+                        value = dspSettings.agcTargetLevelDb,
+                        onValueChange = {
+                            val rounded = Math.round(it).toFloat()
+                            onDspSettingsChanged(dspSettings.copy(agcTargetLevelDb = rounded))
+                        },
+                        valueRange = -12.0f..-3.0f,
+                        steps = 8,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("agc_target_slider")
+                    )
                 }
             }
 

@@ -36,11 +36,20 @@ enum class AudioRoute {
     HEADSET
 }
 
+enum class DspPreset {
+    RAW,
+    BALANCED,
+    CUSTOM
+}
+
 data class AudioDspSettings(
     val noiseSuppression: Boolean = false,
     val echoCancellation: Boolean = false,
     val autoGainControl: Boolean = false,
-    val highpassFilter: Boolean = false
+    val highpassFilter: Boolean = false,
+    val limiterCeilingDb: Float = -2.0f,
+    val agcTargetLevelDb: Float = -3.0f,
+    val preset: DspPreset = DspPreset.RAW
 )
 
 class WebRTCClient(
@@ -181,8 +190,17 @@ class WebRTCClient(
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", if (dspSettings.echoCancellation) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (dspSettings.autoGainControl) "true" else "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (dspSettings.autoGainControl) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (dspSettings.highpassFilter) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (dspSettings.noiseSuppression) "true" else "false"))
+            
+            // Software AGC Target Level (-3.0 dBFS default) & Max Gain Boost (capped at 12 dB)
+            mandatory.add(MediaConstraints.KeyValuePair("googTargetLevelDbfs", kotlin.math.abs(dspSettings.agcTargetLevelDb).toInt().toString()))
+            mandatory.add(MediaConstraints.KeyValuePair("googMaxGainGainDb", "12"))
+            
+            // Limiter / Peak Clipping Ceiling (-2.0 dBFS default)
+            mandatory.add(MediaConstraints.KeyValuePair("googLimiterTargetDbfs", kotlin.math.abs(dspSettings.limiterCeilingDb).toInt().toString()))
+            mandatory.add(MediaConstraints.KeyValuePair("googAudioProcessing", "true"))
         }
 
         audioSource = factory.createAudioSource(audioConstraints)

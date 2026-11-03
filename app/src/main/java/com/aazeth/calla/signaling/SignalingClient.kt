@@ -204,12 +204,12 @@ class SignalingClient(context: Context) {
             count = pendingCandidates.size
         }
 
-        if (count >= 5) {
+        if (count >= 10) {
             candidateFlushJob?.cancel()
             flushCandidates(roomId, isHost)
         } else if (candidateFlushJob?.isActive != true) {
             candidateFlushJob = scope.launch {
-                delay(150)
+                delay(500) // Batch candidates every 500ms to respect ntfy.sh rate limits
                 flushCandidates(roomId, isHost)
             }
         }
@@ -445,22 +445,46 @@ class SignalingClient(context: Context) {
     }
 
     private fun broadcastSignal(roomId: String, payload: JSONObject) {
-        try {
-            val topic = "$TOPIC_PREFIX$roomId"
-            val url = "$NTFY_BASE_URL/$topic"
-            val requestBody = payload.toString().toRequestBody("text/plain; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url(url)
-                .post(requestBody)
-                .build()
+        val topic = "$TOPIC_PREFIX$roomId"
+        val url = "$NTFY_BASE_URL/$topic"
+        val requestBody = payload.toString().toRequestBody("text/plain; charset=utf-8".toMediaType())
+        var maxRetries = 3
+        var backoffMs = 500L
 
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Failed to broadcast signal: ${response.code}")
+        while (maxRetries >= 0) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                var isRateLimited = false
+                val completed = okHttpClient.newCall(request).execute().use { response ->
+                    if (response.code == 429) {
+                        isRateLimited = true
+                        Log.w(TAG, "Rate limited (HTTP 429) on ntfy.sh broadcast, backing off $backoffMs ms...")
+                        com.aazeth.calla.util.NetworkLogger.log("Network", "HTTP 429 rate limit hit, backing off $backoffMs ms")
+                        false
+                    } else {
+                        if (!response.isSuccessful) {
+                            Log.w(TAG, "Failed to broadcast signal: ${response.code}")
+                        }
+                        true
+                    }
                 }
+
+                if (completed) return
+            } catch (e: Exception) {
+                Log.w(TAG, "Error broadcasting signal to room $roomId: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error broadcasting signal to room $roomId: ${e.message}")
+
+            if (maxRetries > 0) {
+                try {
+                    Thread.sleep(backoffMs)
+                } catch (_: InterruptedException) {}
+                backoffMs *= 2
+            }
+            maxRetries--
         }
     }
 
