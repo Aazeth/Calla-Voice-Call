@@ -78,6 +78,9 @@ class WebRTCClient(
     private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var audioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
+    private var remoteAudioTrack: AudioTrack? = null
+    var volumeBoostPercent: Int = 100
+        private set
     private val queuedRemoteCandidates = mutableListOf<IceCandidate>()
     @Volatile private var isRemoteDescriptionSet = false
 
@@ -380,6 +383,12 @@ class WebRTCClient(
 
             override fun onAddStream(stream: org.webrtc.MediaStream?) {
                 Log.d(TAG, "Stream added with audio tracks: ${stream?.audioTracks?.size}")
+                val track = stream?.audioTracks?.firstOrNull()
+                if (track != null) {
+                    remoteAudioTrack = track
+                    track.setVolume(volumeBoostPercent / 100.0)
+                    Log.d(TAG, "Remote audio stream track set to volume $volumeBoostPercent%")
+                }
             }
 
             override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
@@ -392,6 +401,12 @@ class WebRTCClient(
 
             override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out org.webrtc.MediaStream>?) {
                 Log.d(TAG, "Track added: ${receiver?.track()?.kind()}")
+                val track = receiver?.track()
+                if (track is AudioTrack) {
+                    remoteAudioTrack = track
+                    track.setVolume(volumeBoostPercent / 100.0)
+                    Log.d(TAG, "Remote AudioTrack volume set to $volumeBoostPercent%")
+                }
             }
         })
 
@@ -399,6 +414,12 @@ class WebRTCClient(
         localAudioTrack?.let { track ->
             peerConnection?.addTrack(track, listOf("calla_stream"))
         }
+    }
+
+    fun setVolumeBoost(boostPercent: Int) {
+        volumeBoostPercent = boostPercent.coerceIn(0, 300)
+        remoteAudioTrack?.setVolume(volumeBoostPercent / 100.0)
+        Log.d(TAG, "Dynamic volume boost applied: $volumeBoostPercent%")
     }
 
     fun createOffer(bitrateKbps: Int, onOfferReady: (SessionDescription) -> Unit) {
@@ -596,6 +617,7 @@ class WebRTCClient(
             localAudioTrack?.setEnabled(false)
             localAudioTrack?.dispose()
             localAudioTrack = null
+            remoteAudioTrack = null
 
             audioSource?.dispose()
             audioSource = null

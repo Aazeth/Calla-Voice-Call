@@ -61,7 +61,8 @@ data class CallUiState(
     val isLoggingEnabled: Boolean = false,
     val showAudioDspDialog: Boolean = false,
     val pingMs: Long? = null,
-    val isMinimized: Boolean = false
+    val isMinimized: Boolean = false,
+    val volumeBoostPercent: Int = 100
 )
 
 class CallViewModel(application: Application) : AndroidViewModel(application) {
@@ -82,6 +83,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_CUSTOM_TURN_USER = "turn_custom_user"
         private const val KEY_CUSTOM_TURN_PASS = "turn_custom_pass"
         private const val KEY_ENABLE_NETWORK_LOGS = "enable_network_logs"
+        private const val KEY_VOLUME_BOOST = "volume_boost_percent"
     }
 
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -182,12 +184,16 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         val isLogging = prefs.getBoolean(KEY_ENABLE_NETWORK_LOGS, false)
         com.aazeth.calla.util.NetworkLogger.isEnabled = isLogging
 
+        // Load Volume Boost Preference (Default: 100%)
+        val savedVolumeBoost = prefs.getInt(KEY_VOLUME_BOOST, 100).coerceIn(0, 300)
+
         _uiState.update {
             it.copy(
                 nickname = defaultName,
                 dspSettings = dsp,
                 turnConfig = turn,
-                isLoggingEnabled = isLogging
+                isLoggingEnabled = isLogging,
+                volumeBoostPercent = savedVolumeBoost
             )
         }
 
@@ -266,6 +272,13 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_CUSTOM_TURN_USER, turn.customUsername)
             .putString(KEY_CUSTOM_TURN_PASS, turn.customCredential)
             .apply()
+    }
+
+    fun setVolumeBoost(boost: Int) {
+        val clamped = boost.coerceIn(0, 300)
+        _uiState.update { it.copy(volumeBoostPercent = clamped) }
+        prefs.edit().putInt(KEY_VOLUME_BOOST, clamped).apply()
+        webRtcClient?.setVolumeBoost(clamped)
     }
 
     fun dismissError() {
@@ -418,6 +431,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             )
             webRtcClient = client
             client.startLocalAudio(_uiState.value.dspSettings)
+            client.setVolumeBoost(_uiState.value.volumeBoostPercent)
             client.createPeerConnection(_uiState.value.turnConfig)
             _uiState.update { it.copy(audioRoute = client.currentAudioRoute) }
             onReady(client)
