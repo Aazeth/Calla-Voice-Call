@@ -116,11 +116,15 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                     Log.d(TAG, "Auto-reconnecting signaling and triggering ICE restart for room: $roomId")
                     com.aazeth.calla.util.NetworkLogger.log("Network", "Auto-reconnecting signaling & ICE restart for room $roomId")
                     viewModelScope.launch {
+                        isAnswerCreated = false
                         signalingClient.reconnectWebSocket(roomId)
                         if (_uiState.value.isHost) {
                             webRtcClient?.restartIce(_uiState.value.bitrateKbps) { newOffer ->
-                                Log.d(TAG, "ICE restart offer generated")
+                                Log.d(TAG, "ICE restart offer generated on network restore")
+                                signalingClient.sendOffer(roomId, newOffer.description)
                             }
+                        } else {
+                            signalingClient.requestOffer(roomId)
                         }
                     }
                 }
@@ -411,6 +415,17 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startSignalingObservation(roomId: String, isHost: Boolean) {
+        if (isHost) {
+            signalingClient.onRequestOfferRequested = {
+                if (!isEndingCall && _uiState.value.isHost) {
+                    Log.d(TAG, "Host responding to request_offer by triggering ICE restart")
+                    webRtcClient?.restartIce(_uiState.value.bitrateKbps) { newOffer ->
+                        signalingClient.sendOffer(roomId, newOffer.description)
+                    }
+                }
+            }
+        }
+
         signalingClient.observeRoom(roomId) { roomState ->
             if (isEndingCall || roomState == null) return@observeRoom
 
@@ -445,7 +460,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                         peerName = roomState.hostName
                     )
                 }
-                if (!roomState.offerSdp.isNullOrBlank() && !isAnswerCreated) {
+                if (!roomState.offerSdp.isNullOrBlank() && (!isAnswerCreated || _uiState.value.callStatus == CallConnectionStatus.CONNECTING)) {
                     isAnswerCreated = true
                     val remoteBitrate = roomState.bitrateKbps.toInt().coerceIn(64, 256)
                     val guestName = _uiState.value.nickname.ifBlank { "Guest" }
@@ -491,11 +506,15 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch {
                     val roomId = _uiState.value.currentRoomId
                     if (roomId.isNotBlank()) {
+                        isAnswerCreated = false
                         signalingClient.reconnectWebSocket(roomId)
                         if (_uiState.value.isHost) {
                             webRtcClient?.restartIce(_uiState.value.bitrateKbps) { newOffer ->
                                 Log.d(TAG, "ICE restart offer sent on retry attempt $iceRestartRetryCount")
+                                signalingClient.sendOffer(roomId, newOffer.description)
                             }
+                        } else {
+                            signalingClient.requestOffer(roomId)
                         }
                     }
                 }

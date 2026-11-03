@@ -4,8 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
 import com.aazeth.calla.util.SdpUtil
@@ -18,6 +20,7 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.audio.JavaAudioDeviceModule
 
 enum class CallConnectionStatus {
     IDLE,
@@ -63,6 +66,7 @@ class WebRTCClient(
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var audioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
     private val queuedRemoteCandidates = mutableListOf<IceCandidate>()
@@ -103,20 +107,36 @@ class WebRTCClient(
     }
 
     init {
-        initPeerConnectionFactory()
         registerHeadsetDetection()
     }
 
-    private fun initPeerConnectionFactory() {
+    private fun initPeerConnectionFactory(dspSettings: AudioDspSettings = AudioDspSettings()) {
+        if (peerConnectionFactory != null) return
+
         val initOptions = PeerConnectionFactory.InitializationOptions.builder(context)
             .setEnableInternalTracer(false)
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
+        // Custom JavaAudioDeviceModule for High-Fidelity 48 kHz Media Stream Mode
+        val adm = JavaAudioDeviceModule.builder(context)
+            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setUseHardwareAcousticEchoCanceler(dspSettings.echoCancellation)
+            .setUseHardwareNoiseSuppressor(dspSettings.noiseSuppression)
+            .createAudioDeviceModule()
+        audioDeviceModule = adm
+
         val options = PeerConnectionFactory.Options()
 
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setOptions(options)
+            .setAudioDeviceModule(adm)
             .createPeerConnectionFactory()
     }
 
@@ -153,6 +173,7 @@ class WebRTCClient(
     fun startLocalAudio(dspSettings: AudioDspSettings = AudioDspSettings()) {
         if (localAudioTrack != null) return
 
+        initPeerConnectionFactory(dspSettings)
         val factory = peerConnectionFactory ?: return
 
         // Configure audio DSP constraints based on user preferences.
@@ -183,7 +204,8 @@ class WebRTCClient(
 
     fun setAudioRoute(route: AudioRoute) {
         currentAudioRoute = route
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        // Use MODE_NORMAL for high-fidelity media stream output rather than telephony voice comm DSP
+        audioManager.mode = AudioManager.MODE_NORMAL
 
         when (route) {
             AudioRoute.SPEAKER -> {
@@ -559,6 +581,9 @@ class WebRTCClient(
 
             audioSource?.dispose()
             audioSource = null
+
+            audioDeviceModule?.release()
+            audioDeviceModule = null
 
             audioManager.mode = originalAudioMode
             audioManager.isSpeakerphoneOn = originalSpeakerphoneOn

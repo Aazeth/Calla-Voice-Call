@@ -142,6 +142,33 @@ class SignalingClient(context: Context) {
         }
     }
 
+    // Listener for guest requesting offer during reconnect
+    var onRequestOfferRequested: (() -> Unit)? = null
+
+    fun sendOffer(roomId: String, offerSdp: String) {
+        scope.launch {
+            currentRoomState = currentRoomState.copy(offerSdp = offerSdp)
+            val payload = JSONObject().apply {
+                put("type", "offer")
+                put("sender", if (isHostRole) "host" else "guest")
+                put("hostName", currentRoomState.hostName)
+                put("bitrate", currentRoomState.bitrateKbps)
+                put("sdp", offerSdp)
+            }
+            broadcastSignal(roomId, payload)
+        }
+    }
+
+    fun requestOffer(roomId: String) {
+        scope.launch {
+            val payload = JSONObject().apply {
+                put("type", "request_offer")
+                put("sender", if (isHostRole) "host" else "guest")
+            }
+            broadcastSignal(roomId, payload)
+        }
+    }
+
     fun sendAnswer(
         roomId: String,
         answerSdp: String,
@@ -357,6 +384,13 @@ class SignalingClient(context: Context) {
                             status = "waiting"
                         )
                         onRoomStateUpdate?.invoke(currentRoomState)
+                    }
+                }
+
+                "request_offer" -> {
+                    if (isHostRole) {
+                        Log.d(TAG, "Received request_offer signal from guest")
+                        onRequestOfferRequested?.invoke()
                     }
                 }
 

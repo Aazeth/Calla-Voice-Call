@@ -3,8 +3,8 @@ package com.aazeth.calla.util
 object SdpUtil {
 
     /**
-     * Modifies the SDP string to enforce the Opus codec to use the specified bitrate
-     * in fullband 48 kHz stereo/fec format.
+     * Modifies the SDP string to enforce the Opus codec to use high-fidelity media mode:
+     * 48 kHz fullband sampling rate, requested bitrate, stereo capability, inband FEC, and CBR.
      *
      * @param sdp Original SDP string
      * @param bitrateKbps Bitrate in kbps (e.g. 64 to 256)
@@ -43,22 +43,30 @@ object SdpUtil {
             }
         }
 
-        val bitrateParam = "maxaveragebitrate=$bitrateBps;stereo=1;sprop-stereo=1;useinbandfec=1"
+        val highFidelityParams = "maxaveragebitrate=$bitrateBps;stereo=1;sprop-stereo=1;sprop-maxcapturerate=48000;useinbandfec=1;cbr=1"
 
         if (fmtpIndex != -1) {
             val currentFmtp = lines[fmtpIndex]
-            val updatedFmtp = if (currentFmtp.contains("maxaveragebitrate=")) {
-                currentFmtp.replace(
-                    Regex("""maxaveragebitrate=\d+"""),
-                    "maxaveragebitrate=$bitrateBps"
-                )
-            } else {
-                "$currentFmtp;$bitrateParam"
+            val updatedParams = mutableMapOf<String, String>()
+            val paramPairs = currentFmtp.substringAfter("$fmtpPrefix ").trim().split(";")
+            for (pair in paramPairs) {
+                val kv = pair.split("=", limit = 2)
+                if (kv.size == 2) {
+                    updatedParams[kv[0].trim()] = kv[1].trim()
+                }
             }
-            lines[fmtpIndex] = updatedFmtp
+            updatedParams["maxaveragebitrate"] = bitrateBps.toString()
+            updatedParams["stereo"] = "1"
+            updatedParams["sprop-stereo"] = "1"
+            updatedParams["sprop-maxcapturerate"] = "48000"
+            updatedParams["useinbandfec"] = "1"
+            updatedParams["cbr"] = "1"
+
+            val fmtpStr = updatedParams.entries.joinToString(";") { "${it.key}=${it.value}" }
+            lines[fmtpIndex] = "$fmtpPrefix $fmtpStr"
         } else {
             // Insert fmtp line immediately following the rtpmap line
-            val newFmtpLine = "$fmtpPrefix $bitrateParam"
+            val newFmtpLine = "$fmtpPrefix $highFidelityParams"
             lines.add(rtpMapIndex + 1, newFmtpLine)
         }
 
