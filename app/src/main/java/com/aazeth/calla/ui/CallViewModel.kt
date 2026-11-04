@@ -65,7 +65,8 @@ data class CallUiState(
     val volumeBoostPercent: Int = 300,
     val isPeerMuted: Boolean = false,
     val audioLevel: Float = 0f,
-    val showAudioControlSheet: Boolean = false
+    val showAudioControlSheet: Boolean = false,
+    val showEndCallConfirmationDialog: Boolean = false
 )
 
 class CallViewModel(application: Application) : AndroidViewModel(application) {
@@ -355,6 +356,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         )
+        startPingPolling()
     }
 
     fun startDebugCall() {
@@ -470,7 +472,11 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             val client = WebRTCClient(
                 context = context,
                 onIceCandidateGenerated = { candidate ->
-                    signalingClient.sendIceCandidate(roomId, isHost, candidate)
+                    if (_uiState.value.currentRoomId == "DEBUG-LOOP") {
+                        webRtcClient?.addRemoteIceCandidate(candidate)
+                    } else {
+                        signalingClient.sendIceCandidate(roomId, isHost, candidate)
+                    }
                 },
                 onConnectionStatusChanged = { status ->
                     viewModelScope.launch {
@@ -483,6 +489,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             )
             webRtcClient = client
             client.startLocalAudio(_uiState.value.dspSettings)
+            client.setMicMuted(false)
             client.setVolumeBoost(_uiState.value.volumeBoostPercent)
             client.createPeerConnection(_uiState.value.turnConfig)
             _uiState.update { it.copy(audioRoute = client.currentAudioRoute) }
@@ -663,8 +670,8 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                 webRtcClient?.queryRttStats { rtt ->
                     _uiState.update { it.copy(pingMs = rtt) }
                 }
-                // Calculate smooth audio level pulsing for visualizer when in active call
-                if (_uiState.value.callStatus == CallConnectionStatus.CONNECTED && !_uiState.value.isMicMuted) {
+                // Calculate smooth audio level pulsing for visualizer when in active call screen
+                if (_uiState.value.screen == ScreenState.IN_CALL && !_uiState.value.isMicMuted) {
                     audioLevelPhase = (audioLevelPhase + 0.3f) % (2f * Math.PI.toFloat())
                     val normalizedLevel = (kotlin.math.sin(audioLevelPhase) * 0.4f + 0.5f).coerceIn(0.1f, 1.0f)
                     _uiState.update { it.copy(audioLevel = normalizedLevel) }
@@ -694,6 +701,10 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     fun cycleAudioRoute() {
         val nextRoute = webRtcClient?.cycleAudioRoute() ?: AudioRoute.SPEAKER
         _uiState.update { it.copy(audioRoute = nextRoute) }
+    }
+
+    fun setEndCallConfirmationDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showEndCallConfirmationDialog = visible) }
     }
 
     fun endCall(remoteInitiated: Boolean = false) {
@@ -730,6 +741,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                     isPeerMuted = false,
                     audioLevel = 0f,
                     showAudioControlSheet = false,
+                    showEndCallConfirmationDialog = false,
                     audioRoute = AudioRoute.SPEAKER,
                     callDurationSeconds = 0L,
                     joinCodeInput = "",

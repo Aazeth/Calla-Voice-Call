@@ -128,9 +128,9 @@ class WebRTCClient(
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
-        // Custom JavaAudioDeviceModule with MIC audio source and MEDIA usage for 48 kHz fullband ambient audio
+        // Custom JavaAudioDeviceModule with VOICE_RECOGNITION audio source and MEDIA usage for 48 kHz fullband clean audio
         val adm = JavaAudioDeviceModule.builder(context)
-            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -439,7 +439,18 @@ class WebRTCClient(
                                         val answerMunged = SdpUtil.setOpusBitrate(answerDesc.description, bitrateKbps)
                                         val answer = SessionDescription(answerDesc.type, answerMunged)
                                         pc.setLocalDescription(object : SdpObserver {
-                                            override fun onSetSuccess() {}
+                                            override fun onSetSuccess() {
+                                                pc.setRemoteDescription(object : SdpObserver {
+                                                    override fun onSetSuccess() {
+                                                        Log.d(TAG, "Loopback connection established successfully")
+                                                    }
+                                                    override fun onSetFailure(err: String?) {
+                                                        Log.e(TAG, "Loopback remote answer failure: $err")
+                                                    }
+                                                    override fun onCreateSuccess(p0: SessionDescription?) {}
+                                                    override fun onCreateFailure(err: String?) {}
+                                                }, answer)
+                                            }
                                             override fun onSetFailure(err: String?) {}
                                             override fun onCreateSuccess(p0: SessionDescription?) {}
                                             override fun onCreateFailure(err: String?) {}
@@ -636,6 +647,11 @@ class WebRTCClient(
             pc.addIceCandidate(candidate)
             com.aazeth.calla.util.NetworkLogger.log("ICE", "Added remote candidate: ${candidate.sdpMid} - ${candidate.sdp}")
         }
+    }
+
+    fun setMicMuted(muted: Boolean) {
+        isMicMuted = muted
+        localAudioTrack?.setEnabled(!isMicMuted)
     }
 
     fun toggleMute(): Boolean {

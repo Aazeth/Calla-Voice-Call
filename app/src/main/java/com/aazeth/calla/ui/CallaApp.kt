@@ -139,6 +139,7 @@ fun CallaApp(
             dspSettings = uiState.dspSettings,
             turnConfig = uiState.turnConfig,
             isLoggingEnabled = uiState.isLoggingEnabled,
+            isCallActive = uiState.currentRoomId.isNotBlank(),
             onLoggingEnabledChanged = viewModel::setEnableNetworkLogs,
             onDspSettingsChanged = viewModel::updateDspSettings,
             onTurnConfigChanged = viewModel::updateTurnConfig,
@@ -161,6 +162,45 @@ fun CallaApp(
         )
     }
 
+    if (uiState.showEndCallConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.setEndCallConfirmationDialogVisible(false) },
+            title = {
+                Text(
+                    text = "End Call?",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure to end this voice call?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setEndCallConfirmationDialogVisible(false)
+                        viewModel.endCall()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.setEndCallConfirmationDialogVisible(false) }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (uiState.screen == ScreenState.IN_CALL && !uiState.isMinimized) {
         BackHandler {
             viewModel.minimizeCall()
@@ -171,7 +211,7 @@ fun CallaApp(
             onToggleMute = viewModel::toggleMute,
             onOpenAudioControlSheet = { viewModel.setAudioControlSheetVisible(true) },
             onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
-            onEndCall = { viewModel.endCall() }
+            onEndCall = { viewModel.setEndCallConfirmationDialogVisible(true) }
         )
     } else {
         LobbyScreen(
@@ -182,7 +222,7 @@ fun CallaApp(
             onCreateRoom = viewModel::createRoom,
             onJoinRoom = viewModel::joinRoom,
             onExpandCall = viewModel::expandCall,
-            onEndCall = viewModel::endCall,
+            onEndCall = { viewModel.setEndCallConfirmationDialogVisible(true) },
             onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
             onDismissError = viewModel::dismissError
         )
@@ -304,41 +344,57 @@ fun LobbyScreen(
                                     .background(Color(0xFF4CAF50))
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                             Column {
                                 Text(
-                                    text = "Ongoing Call • Room #${uiState.currentRoomId}",
+                                    text = "${uiState.peerName.ifBlank { "Partner" }} • Room #${uiState.currentRoomId}",
                                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 val minutes = uiState.callDurationSeconds / 60
                                 val seconds = uiState.callDurationSeconds % 60
                                 val timeStr = String.format("%02d:%02d", minutes, seconds)
                                 Text(
-                                    text = "${uiState.peerName.ifBlank { "Connected" }} • $timeStr (Tap to return)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    text = timeStr,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
                                 )
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FilledTonalIconButton(
                                 onClick = onExpandCall,
-                                modifier = Modifier.testTag("expand_call_button")
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("expand_call_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInFull,
                                     contentDescription = "Expand Call Screen",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
-                            IconButton(
+                            FilledTonalIconButton(
                                 onClick = onEndCall,
-                                modifier = Modifier.testTag("banner_end_call_button")
+                                colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                ),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("banner_end_call_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CallEnd,
                                     contentDescription = "End Call",
-                                    tint = MaterialTheme.colorScheme.error
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -552,9 +608,10 @@ fun LobbyScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(16.dp))
+                        val isRoomActive = uiState.currentRoomId.isNotBlank()
                         Button(
                             onClick = onCreateRoom,
-                            enabled = !uiState.isLoading,
+                            enabled = !uiState.isLoading && !isRoomActive,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -637,9 +694,10 @@ fun LobbyScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        val isRoomActive = uiState.currentRoomId.isNotBlank()
                         FilledTonalButton(
                             onClick = onJoinRoom,
-                            enabled = !uiState.isLoading && uiState.joinCodeInput.length == 6,
+                            enabled = !uiState.isLoading && uiState.joinCodeInput.length == 6 && !isRoomActive,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -827,42 +885,43 @@ fun InCallScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    // Ping Indicator Pill Badge (Only shown when call is connected)
+                    if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val pingVal = uiState.pingMs
+                        val (pingDotColor, pingTextColor, pingText) = when {
+                            pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
+                            pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                            pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                            else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        }
 
-                    // Ping Indicator Pill Badge
-                    val pingVal = uiState.pingMs
-                    val (pingDotColor, pingTextColor, pingText) = when {
-                        pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
-                        pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                        pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                        else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        modifier = Modifier.testTag("ping_indicator_badge")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("ping_indicator_badge")
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(pingDotColor)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = pingText,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                color = pingTextColor
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(pingDotColor)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = pingText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    ),
+                                    color = pingTextColor
+                                )
+                            }
                         }
                     }
 
@@ -1394,6 +1453,7 @@ fun SettingsBottomSheet(
     dspSettings: AudioDspSettings,
     turnConfig: TurnConfig,
     isLoggingEnabled: Boolean,
+    isCallActive: Boolean = false,
     onLoggingEnabledChanged: (Boolean) -> Unit,
     onDspSettingsChanged: (AudioDspSettings) -> Unit,
     onTurnConfigChanged: (TurnConfig) -> Unit,
@@ -1776,69 +1836,71 @@ fun SettingsBottomSheet(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            if (!isCallActive) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-            // Debug Call & Ear Monitoring Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                // Debug Call & Ear Monitoring Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "Debug Call & Ear Monitoring",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Debug Call & Ear Monitoring",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
 
-                    Text(
-                        text = "Test WebRTC audio quality, ear monitoring, and preview real-time Call Screen DSP processing by listening to your own voice.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Button(
-                        onClick = {
-                            handleDismiss()
-                            onStartDebugCall()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .testTag("start_debug_call_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiary,
-                            contentColor = MaterialTheme.colorScheme.onTertiary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Start Ear Monitoring Test",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            text = "Test WebRTC audio quality, ear monitoring, and preview real-time Call Screen DSP processing by listening to your own voice.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        Button(
+                            onClick = {
+                                handleDismiss()
+                                onStartDebugCall()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("start_debug_call_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Start Ear Monitoring Test",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
                     }
                 }
             }
