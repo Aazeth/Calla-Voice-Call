@@ -47,8 +47,6 @@ data class AudioDspSettings(
     val echoCancellation: Boolean = true,
     val autoGainControl: Boolean = false,
     val highpassFilter: Boolean = false,
-    val limiterCeilingDb: Float = -4.0f,
-    val agcTargetLevelDb: Float = -1.0f,
     val preset: DspPreset = DspPreset.CUSTOM
 )
 
@@ -130,15 +128,13 @@ class WebRTCClient(
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
-        // Custom JavaAudioDeviceModule for High-Fidelity 48 kHz Media Stream Mode
-        // Hardware AEC and NS are explicitly disabled (false) to bypass Android telephony DSP cropping
-        // and force pure 48 kHz fullband Software DSP (WebRTC Software AEC3, Software NS, Software AGC).
+        // Custom JavaAudioDeviceModule with VOICE_COMMUNICATION for crystal clear software voice recording
         val adm = JavaAudioDeviceModule.builder(context)
-            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
             .setUseHardwareAcousticEchoCanceler(false)
@@ -190,20 +186,13 @@ class WebRTCClient(
         initPeerConnectionFactory(dspSettings)
         val factory = peerConnectionFactory ?: return
 
-        // Configure audio DSP constraints based on user preferences.
+        // Clean software audio DSP constraints
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", if (dspSettings.echoCancellation) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (dspSettings.autoGainControl) "true" else "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (dspSettings.autoGainControl) "true" else "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (dspSettings.highpassFilter) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (dspSettings.noiseSuppression) "true" else "false"))
-            
-            // Software AGC Target Level (-1.0 dBFS default) & Max Gain Boost (18 dB)
-            mandatory.add(MediaConstraints.KeyValuePair("googTargetLevelDbfs", kotlin.math.abs(dspSettings.agcTargetLevelDb).toInt().toString()))
-            mandatory.add(MediaConstraints.KeyValuePair("googMaxGainGainDb", "18"))
-            
-            // Limiter / Peak Clipping Ceiling (-4.0 dBFS default)
-            mandatory.add(MediaConstraints.KeyValuePair("googLimiterTargetDbfs", kotlin.math.abs(dspSettings.limiterCeilingDb).toInt().toString()))
             mandatory.add(MediaConstraints.KeyValuePair("googAudioProcessing", "true"))
         }
 

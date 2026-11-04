@@ -170,8 +170,6 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             echoCancellation = prefs.getBoolean(KEY_DSP_ECHO, true),
             autoGainControl = prefs.getBoolean(KEY_DSP_AGC, false),
             highpassFilter = prefs.getBoolean(KEY_DSP_HIGHPASS, false),
-            limiterCeilingDb = prefs.getFloat(KEY_DSP_LIMITER_CEILING, -4.0f),
-            agcTargetLevelDb = prefs.getFloat(KEY_DSP_AGC_TARGET, -1.0f),
             preset = savedPreset
         )
 
@@ -190,13 +188,20 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         // Load Volume Boost Preference (Default: 300%)
         val savedVolumeBoost = prefs.getInt(KEY_VOLUME_BOOST, 300).coerceIn(0, 500)
 
+        val isServiceActive = CallService.isServiceRunning && CallService.activeRoomId.isNotBlank()
+
         _uiState.update {
             it.copy(
                 nickname = defaultName,
                 dspSettings = dsp,
                 turnConfig = turn,
                 isLoggingEnabled = isLogging,
-                volumeBoostPercent = savedVolumeBoost
+                volumeBoostPercent = savedVolumeBoost,
+                screen = if (isServiceActive) ScreenState.IN_CALL else ScreenState.LOBBY,
+                currentRoomId = if (isServiceActive) CallService.activeRoomId else "",
+                peerName = if (isServiceActive) CallService.activePeerName.ifBlank { "Partner" } else "",
+                callStatus = if (isServiceActive) CallConnectionStatus.CONNECTED else CallConnectionStatus.IDLE,
+                callStatusText = if (isServiceActive) "Connected" else ""
             )
         }
 
@@ -266,8 +271,6 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             .putBoolean(KEY_DSP_ECHO, dsp.echoCancellation)
             .putBoolean(KEY_DSP_AGC, dsp.autoGainControl)
             .putBoolean(KEY_DSP_HIGHPASS, dsp.highpassFilter)
-            .putFloat(KEY_DSP_LIMITER_CEILING, dsp.limiterCeilingDb)
-            .putFloat(KEY_DSP_AGC_TARGET, dsp.agcTargetLevelDb)
             .apply()
         webRtcClient?.updateAudioDspSettings(dsp)
     }

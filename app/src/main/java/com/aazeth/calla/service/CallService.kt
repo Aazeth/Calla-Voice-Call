@@ -32,6 +32,10 @@ class CallService : Service() {
         const val EXTRA_STATUS = "extra_status"
         const val EXTRA_EXPAND_CALL = "extra_expand_call"
 
+        @Volatile var isServiceRunning: Boolean = false
+        @Volatile var activeRoomId: String = ""
+        @Volatile var activePeerName: String = ""
+
         fun start(
             context: Context,
             roomId: String,
@@ -40,6 +44,9 @@ class CallService : Service() {
             status: String
         ) {
             try {
+                isServiceRunning = true
+                activeRoomId = roomId
+                activePeerName = peerName
                 val intent = Intent(context, CallService::class.java).apply {
                     action = ACTION_START_CALL
                     putExtra(EXTRA_ROOM_ID, roomId)
@@ -59,6 +66,7 @@ class CallService : Service() {
 
         fun update(context: Context, status: String, peerName: String? = null) {
             try {
+                peerName?.let { activePeerName = it }
                 val intent = Intent(context, CallService::class.java).apply {
                     action = ACTION_UPDATE_CALL
                     putExtra(EXTRA_STATUS, status)
@@ -72,6 +80,9 @@ class CallService : Service() {
 
         fun stop(context: Context) {
             try {
+                isServiceRunning = false
+                activeRoomId = ""
+                activePeerName = ""
                 val intent = Intent(context, CallService::class.java).apply {
                     action = ACTION_STOP_CALL
                 }
@@ -102,24 +113,36 @@ class CallService : Service() {
                     currentBitrateKbps = intent.getIntExtra(EXTRA_BITRATE_KBPS, 128)
                     currentStatus = intent.getStringExtra(EXTRA_STATUS) ?: "Connecting"
                     callStartTimeMillis = System.currentTimeMillis()
+                    isServiceRunning = true
+                    activeRoomId = currentRoomId
+                    activePeerName = currentPeerName
                     startForegroundWithNotification()
                 }
                 ACTION_UPDATE_CALL -> {
                     val newStatus = intent.getStringExtra(EXTRA_STATUS)
                     if (newStatus == "Idle" || newStatus == "Ended" || newStatus == "Stopped") {
+                        isServiceRunning = false
+                        activeRoomId = ""
+                        activePeerName = ""
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         val notificationManager = getSystemService(NotificationManager::class.java)
                         notificationManager?.cancel(NOTIFICATION_ID)
                         stopSelf()
                     } else {
                         newStatus?.let { currentStatus = it }
-                        intent.getStringExtra(EXTRA_PEER_NAME)?.let { currentPeerName = it }
+                        intent.getStringExtra(EXTRA_PEER_NAME)?.let {
+                            currentPeerName = it
+                            activePeerName = it
+                        }
                         val notification = buildNotification()
                         val notificationManager = getSystemService(NotificationManager::class.java)
                         notificationManager?.notify(NOTIFICATION_ID, notification)
                     }
                 }
                 ACTION_STOP_FROM_NOTIFICATION -> {
+                    isServiceRunning = false
+                    activeRoomId = ""
+                    activePeerName = ""
                     sendBroadcast(Intent(ACTION_CALL_ENDED_FROM_NOTIFICATION).apply {
                         setPackage(packageName)
                     })
@@ -129,6 +152,9 @@ class CallService : Service() {
                     stopSelf()
                 }
                 ACTION_STOP_CALL -> {
+                    isServiceRunning = false
+                    activeRoomId = ""
+                    activePeerName = ""
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     val notificationManager = getSystemService(NotificationManager::class.java)
                     notificationManager?.cancel(NOTIFICATION_ID)
@@ -139,6 +165,23 @@ class CallService : Service() {
             android.util.Log.e("CallService", "Error in onStartCommand: ${e.message}", e)
         }
         return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        android.util.Log.d("CallService", "Task removed by user (app swiped away from recent apps)")
+        try {
+            sendBroadcast(Intent(ACTION_CALL_ENDED_FROM_NOTIFICATION).apply {
+                setPackage(packageName)
+            })
+        } catch (_: Exception) {}
+        isServiceRunning = false
+        activeRoomId = ""
+        activePeerName = ""
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager?.cancel(NOTIFICATION_ID)
+        stopSelf()
     }
 
     private fun startForegroundWithNotification() {
@@ -231,8 +274,11 @@ class CallService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isServiceRunning = false
+        activeRoomId = ""
+        activePeerName = ""
         stopForeground(STOP_FOREGROUND_REMOVE)
         val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.cancel(NOTIFICATION_ID)
+        notificationManager?.cancel(NOTIFICATION_ID)
     }
 }

@@ -76,9 +76,10 @@ fun MainContent(callViewModel: CallViewModel) {
         }
     }
 
-    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            CallaApp(viewModel = callViewModel)
-        }
+    androidx.compose.material3.Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
+    ) { _ ->
+        CallaApp(viewModel = callViewModel)
     }
 }
