@@ -44,12 +44,12 @@ enum class DspPreset {
 
 data class AudioDspSettings(
     val noiseSuppression: Boolean = false,
-    val echoCancellation: Boolean = false,
+    val echoCancellation: Boolean = true,
     val autoGainControl: Boolean = false,
     val highpassFilter: Boolean = false,
-    val limiterCeilingDb: Float = -2.0f,
-    val agcTargetLevelDb: Float = -3.0f,
-    val preset: DspPreset = DspPreset.RAW
+    val limiterCeilingDb: Float = -4.0f,
+    val agcTargetLevelDb: Float = -1.0f,
+    val preset: DspPreset = DspPreset.CUSTOM
 )
 
 class WebRTCClient(
@@ -131,6 +131,8 @@ class WebRTCClient(
         PeerConnectionFactory.initialize(initOptions)
 
         // Custom JavaAudioDeviceModule for High-Fidelity 48 kHz Media Stream Mode
+        // Hardware AEC and NS are explicitly disabled (false) to bypass Android telephony DSP cropping
+        // and force pure 48 kHz fullband Software DSP (WebRTC Software AEC3, Software NS, Software AGC).
         val adm = JavaAudioDeviceModule.builder(context)
             .setAudioSource(MediaRecorder.AudioSource.MIC)
             .setAudioAttributes(
@@ -139,8 +141,8 @@ class WebRTCClient(
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
-            .setUseHardwareAcousticEchoCanceler(dspSettings.echoCancellation)
-            .setUseHardwareNoiseSuppressor(dspSettings.noiseSuppression)
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
             .createAudioDeviceModule()
         audioDeviceModule = adm
 
@@ -189,7 +191,6 @@ class WebRTCClient(
         val factory = peerConnectionFactory ?: return
 
         // Configure audio DSP constraints based on user preferences.
-        // If all are false, WebRTC captures unfiltered raw audio preserving breathing & fine dynamics.
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", if (dspSettings.echoCancellation) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (dspSettings.autoGainControl) "true" else "false"))
@@ -197,11 +198,11 @@ class WebRTCClient(
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (dspSettings.highpassFilter) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (dspSettings.noiseSuppression) "true" else "false"))
             
-            // Software AGC Target Level (-3.0 dBFS default) & Max Gain Boost (capped at 12 dB)
+            // Software AGC Target Level (-1.0 dBFS default) & Max Gain Boost (18 dB)
             mandatory.add(MediaConstraints.KeyValuePair("googTargetLevelDbfs", kotlin.math.abs(dspSettings.agcTargetLevelDb).toInt().toString()))
-            mandatory.add(MediaConstraints.KeyValuePair("googMaxGainGainDb", "12"))
+            mandatory.add(MediaConstraints.KeyValuePair("googMaxGainGainDb", "18"))
             
-            // Limiter / Peak Clipping Ceiling (-2.0 dBFS default)
+            // Limiter / Peak Clipping Ceiling (-4.0 dBFS default)
             mandatory.add(MediaConstraints.KeyValuePair("googLimiterTargetDbfs", kotlin.math.abs(dspSettings.limiterCeilingDb).toInt().toString()))
             mandatory.add(MediaConstraints.KeyValuePair("googAudioProcessing", "true"))
         }
@@ -420,6 +421,11 @@ class WebRTCClient(
         volumeBoostPercent = boostPercent.coerceIn(0, 300)
         remoteAudioTrack?.setVolume(volumeBoostPercent / 100.0)
         Log.d(TAG, "Dynamic volume boost applied: $volumeBoostPercent%")
+    }
+
+    fun updateAudioDspSettings(newSettings: AudioDspSettings) {
+        Log.d(TAG, "Dynamic Audio DSP settings update applied: $newSettings")
+        com.aazeth.calla.util.NetworkLogger.log("WebRTC", "Dynamic Audio DSP settings update: $newSettings")
     }
 
     fun createOffer(bitrateKbps: Int, onOfferReady: (SessionDescription) -> Unit) {

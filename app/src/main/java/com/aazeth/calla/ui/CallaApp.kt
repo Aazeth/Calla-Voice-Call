@@ -1404,7 +1404,7 @@ fun SettingsBottomSheet(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Target vocal level (Max gain boost 12 dB)",
+                                text = "Target vocal level (Max gain boost 18 dB)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1426,13 +1426,13 @@ fun SettingsBottomSheet(
                     }
 
                     Slider(
-                        value = dspSettings.agcTargetLevelDb,
+                        value = dspSettings.agcTargetLevelDb.coerceIn(-18.0f, 0.0f),
                         onValueChange = {
                             val rounded = Math.round(it).toFloat()
                             onDspSettingsChanged(dspSettings.copy(agcTargetLevelDb = rounded))
                         },
-                        valueRange = -12.0f..-3.0f,
-                        steps = 8,
+                        valueRange = -18.0f..0.0f,
+                        steps = 17,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("agc_target_slider")

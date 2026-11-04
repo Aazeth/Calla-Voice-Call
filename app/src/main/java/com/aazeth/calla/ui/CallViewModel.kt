@@ -158,17 +158,17 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             "User #" + (100..999).random()
         }
 
-        // Load Audio DSP settings (Default: Raw Audio Mode)
-        val presetStr = prefs.getString(KEY_DSP_PRESET, DspPreset.RAW.name) ?: DspPreset.RAW.name
-        val savedPreset = try { DspPreset.valueOf(presetStr) } catch (_: Exception) { DspPreset.RAW }
+        // Load Audio DSP settings (Default: Custom Mode, Echo Cancellation only enabled)
+        val presetStr = prefs.getString(KEY_DSP_PRESET, DspPreset.CUSTOM.name) ?: DspPreset.CUSTOM.name
+        val savedPreset = try { DspPreset.valueOf(presetStr) } catch (_: Exception) { DspPreset.CUSTOM }
 
         val dsp = AudioDspSettings(
             noiseSuppression = prefs.getBoolean(KEY_DSP_NOISE, false),
-            echoCancellation = prefs.getBoolean(KEY_DSP_ECHO, false),
+            echoCancellation = prefs.getBoolean(KEY_DSP_ECHO, true),
             autoGainControl = prefs.getBoolean(KEY_DSP_AGC, false),
             highpassFilter = prefs.getBoolean(KEY_DSP_HIGHPASS, false),
-            limiterCeilingDb = prefs.getFloat(KEY_DSP_LIMITER_CEILING, -2.0f),
-            agcTargetLevelDb = prefs.getFloat(KEY_DSP_AGC_TARGET, -3.0f),
+            limiterCeilingDb = prefs.getFloat(KEY_DSP_LIMITER_CEILING, -4.0f),
+            agcTargetLevelDb = prefs.getFloat(KEY_DSP_AGC_TARGET, -1.0f),
             preset = savedPreset
         )
 
@@ -262,6 +262,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             .putFloat(KEY_DSP_LIMITER_CEILING, dsp.limiterCeilingDb)
             .putFloat(KEY_DSP_AGC_TARGET, dsp.agcTargetLevelDb)
             .apply()
+        webRtcClient?.updateAudioDspSettings(dsp)
     }
 
     fun updateTurnConfig(turn: TurnConfig) {
