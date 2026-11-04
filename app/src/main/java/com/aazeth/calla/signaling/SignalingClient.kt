@@ -58,6 +58,7 @@ class SignalingClient(context: Context) {
     // Listeners registered by CallViewModel
     private var onRoomStateUpdate: ((RoomState) -> Unit)? = null
     private var onRemoteIceCandidate: ((IceCandidate) -> Unit)? = null
+    var onPeerMuteStateChanged: ((Boolean) -> Unit)? = null
 
     // Cache current room state
     private var currentRoomState = RoomState()
@@ -328,6 +329,17 @@ class SignalingClient(context: Context) {
         })
     }
 
+    fun sendMuteState(roomId: String, isMuted: Boolean) {
+        scope.launch {
+            val payload = JSONObject().apply {
+                put("type", "mute_state")
+                put("sender", if (isHostRole) "host" else "guest")
+                put("isMuted", isMuted)
+            }
+            broadcastSignal(roomId, payload)
+        }
+    }
+
     private fun handleIncomingMessage(rawJson: String) {
         try {
             val root = JSONObject(rawJson)
@@ -437,6 +449,11 @@ class SignalingClient(context: Context) {
                 "bye" -> {
                     currentRoomState = currentRoomState.copy(status = "ended")
                     onRoomStateUpdate?.invoke(currentRoomState)
+                }
+
+                "mute_state" -> {
+                    val isMuted = signal.optBoolean("isMuted", false)
+                    onPeerMuteStateChanged?.invoke(isMuted)
                 }
             }
         } catch (e: Exception) {

@@ -418,7 +418,7 @@ class WebRTCClient(
     }
 
     fun setVolumeBoost(boostPercent: Int) {
-        volumeBoostPercent = boostPercent.coerceIn(0, 300)
+        volumeBoostPercent = boostPercent.coerceIn(0, 500)
         remoteAudioTrack?.setVolume(volumeBoostPercent / 100.0)
         Log.d(TAG, "Dynamic volume boost applied: $volumeBoostPercent%")
     }

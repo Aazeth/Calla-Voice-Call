@@ -3,6 +3,14 @@ package com.aazeth.calla.ui
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -102,6 +110,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -134,6 +143,20 @@ fun CallaApp(
         )
     }
 
+    if (uiState.showAudioControlSheet) {
+        AudioControlBottomSheet(
+            volumeBoostPercent = uiState.volumeBoostPercent,
+            currentAudioRoute = uiState.audioRoute,
+            onVolumeBoostChange = viewModel::setVolumeBoost,
+            onAudioRouteSelected = { route ->
+                if (uiState.audioRoute != route) {
+                    viewModel.cycleAudioRoute()
+                }
+            },
+            onDismiss = { viewModel.setAudioControlSheetVisible(false) }
+        )
+    }
+
     if (uiState.screen == ScreenState.IN_CALL && !uiState.isMinimized) {
         BackHandler {
             viewModel.minimizeCall()
@@ -142,8 +165,7 @@ fun CallaApp(
             uiState = uiState,
             onMinimizeCall = viewModel::minimizeCall,
             onToggleMute = viewModel::toggleMute,
-            onToggleSpeaker = viewModel::cycleAudioRoute,
-            onVolumeBoostChange = viewModel::setVolumeBoost,
+            onOpenAudioControlSheet = { viewModel.setAudioControlSheetVisible(true) },
             onOpenSettings = { viewModel.setAudioDspDialogVisible(true) },
             onEndCall = { viewModel.endCall() }
         )
@@ -184,8 +206,20 @@ fun LobbyScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(56.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
@@ -212,24 +246,21 @@ fun LobbyScreen(
                             )
                         )
                     }
-                },
-                actions = {
                     IconButton(
                         onClick = onOpenSettings,
-                        modifier = Modifier.testTag("audio_settings_button")
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("audio_settings_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = "Audio Processing & Detail",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                },
-                windowInsets = WindowInsets(top = (statusBarTopPadding / 2)),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+                }
+            }
         }
     ) { paddingValues ->
         Column(
@@ -644,8 +675,7 @@ fun InCallScreen(
     uiState: CallUiState,
     onMinimizeCall: () -> Unit,
     onToggleMute: () -> Unit,
-    onToggleSpeaker: () -> Unit,
-    onVolumeBoostChange: (Int) -> Unit,
+    onOpenAudioControlSheet: () -> Unit,
     onOpenSettings: () -> Unit,
     onEndCall: () -> Unit
 ) {
@@ -659,467 +689,665 @@ fun InCallScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Bar: Minimize (Top-Left), Ping (Top-Center), Settings (Top-Right)
+            // Top Section Container: Header + Central Group closely connected
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
+                // Header: Top Bar with statusBarsPadding, 56.dp height, 16.dp horizontal padding, CenterVertically
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .statusBarsPadding()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp)
                 ) {
-                    // Top-Left: Minimize Button
-                    IconButton(
-                        onClick = onMinimizeCall,
-                        modifier = Modifier.testTag("minimize_call_button")
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Minimize Call",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(32.dp)
-                        )
+                        // Top-Left: Minimize Button (24.dp icon with 48.dp touch target)
+                        IconButton(
+                            onClick = onMinimizeCall,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("minimize_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Minimize Call",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Top-Center: Ping Indicator Mini Pill Badge
+                        val pingVal = uiState.pingMs
+                        val (pingDotColor, pingTextColor, pingText) = when {
+                            pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
+                            pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                            pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                            else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("ping_indicator_badge")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(pingDotColor)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = pingText,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    ),
+                                    color = pingTextColor
+                                )
+                            }
+                        }
+
+                        // Top-Right: Settings Button (24.dp icon with 48.dp touch target)
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("incall_audio_settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Audio Processing & Settings",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Compact Central Column: Room Code Card, Connection Status Badge, Avatar Visualizer, Peer Name, Duration Timer, Bitrate Chip
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Room Code Card (Auto-hidden once partner joins)
+                    val partnerJoined = uiState.callStatus == CallConnectionStatus.CONNECTED || (uiState.peerName.isNotBlank() && !uiState.peerName.startsWith("Waiting"))
+                    AnimatedVisibility(visible = !partnerJoined) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "ROOM CODE",
+                                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Text(
+                                        text = uiState.currentRoomId,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            letterSpacing = 2.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(uiState.currentRoomId))
+                                        Toast.makeText(context, "Room code copied: ${uiState.currentRoomId}", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .testTag("copy_room_code_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Room Code",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    // Top-Center: Ping Indicator Mini Pill Badge
-                    val pingVal = uiState.pingMs
-                    val (pingDotColor, pingTextColor, pingText) = when {
-                        pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
-                        pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                        pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                        else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                    // Connection status chip
+                    val statusDotColor = when (uiState.callStatus) {
+                        CallConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
+                        CallConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.tertiary
+                        CallConnectionStatus.FAILED,
+                        CallConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.outline
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                        modifier = Modifier.testTag("ping_indicator_badge")
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(pingDotColor)
+                                    .background(statusDotColor)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = pingText,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                color = pingTextColor
-                            )
-                        }
-                    }
-
-                    // Top-Right: Settings Button
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.testTag("incall_audio_settings_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "Audio Processing & Settings",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
-
-                // Room Code Card (Cleaned up)
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "ROOM CODE",
-                                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = uiState.currentRoomId,
-                                style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 2.sp
-                                ),
+                                text = uiState.callStatusText.ifBlank { "Connecting..." },
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
 
-                        Spacer(modifier = Modifier.width(20.dp))
+                    // Pulsing Ripple Wave Visualizer
+                    PulsingAvatarVisualizer(
+                        audioLevel = uiState.audioLevel,
+                        isPeerMuted = uiState.isPeerMuted,
+                        isConnected = uiState.callStatus == CallConnectionStatus.CONNECTED
+                    )
 
-                        FilledTonalIconButton(
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(uiState.currentRoomId))
-                                Toast.makeText(context, "Room code copied: ${uiState.currentRoomId}", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier
-                                .size(44.dp)
-                                .testTag("copy_room_code_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy Room Code",
-                                modifier = Modifier.size(20.dp)
-                            )
+                    // Peer Name + Muted Microphone Icon / Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = uiState.peerName.ifBlank { if (uiState.isHost) "Waiting for guest..." else "Host" },
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (uiState.isPeerMuted) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.errorContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MicOff,
+                                        contentDescription = "Peer Muted",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Muted",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    // Call Duration Timer
+                    val minutes = uiState.callDurationSeconds / 60
+                    val seconds = uiState.callDurationSeconds % 60
+                    val formattedTime = String.format("%02d:%02d", minutes, seconds)
 
-                // Connection status chip
-                val statusDotColor = when (uiState.callStatus) {
-                    CallConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
-                    CallConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.tertiary
-                    CallConnectionStatus.FAILED,
-                    CallConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.outline
-                }
+                    Text(
+                        text = if (uiState.callStatus == CallConnectionStatus.CONNECTED) formattedTime else "00:00",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        }
+                    )
 
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Active Audio Quality Info
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(statusDotColor)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = uiState.callStatusText.ifBlank { "Connecting..." },
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "${uiState.bitrateKbps} kbps • Opus 48 kHz",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                         )
                     }
                 }
             }
 
-            // Center: Peer Avatar, Peer Name, Timer, and Bitrate Badge
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            // Symmetrical 3 Bottom Action Buttons (Mute, End Call, Speaker)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Large Avatar
-                Box(
-                    modifier = Modifier
-                        .size(112.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(
-                            width = 3.dp,
-                            color = if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
-                                MaterialTheme.colorScheme.primary
+                // 1. Mute / Unmute Button Column
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    FilledTonalIconButton(
+                        onClick = onToggleMute,
+                        modifier = Modifier
+                            .size(60.dp)
+                            .testTag("mute_mic_button"),
+                        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = if (uiState.isMicMuted) {
+                                MaterialTheme.colorScheme.errorContainer
                             } else {
                                 MaterialTheme.colorScheme.surfaceContainerHigh
                             },
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Peer Avatar",
-                        modifier = Modifier.size(60.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Text(
-                    text = uiState.peerName.ifBlank { if (uiState.isHost) "Waiting for guest..." else "Host" },
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Call Duration Timer
-                val minutes = uiState.callDurationSeconds / 60
-                val seconds = uiState.callDurationSeconds % 60
-                val formattedTime = String.format("%02d:%02d", minutes, seconds)
-
-                Text(
-                    text = if (uiState.callStatus == CallConnectionStatus.CONNECTED) formattedTime else "00:00",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace
-                    ),
-                    color = if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Active Audio Quality Info
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer
-                ) {
-                    Text(
-                        text = "${uiState.bitrateKbps} kbps • Opus 48 kHz",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = FontFamily.Monospace
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
-            // Bottom Controls Bar: Volume Boost Card + Mute, End Call, Speaker
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Volume Boost Control Card (Positioned directly above main action buttons)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .testTag("volume_boost_card"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Volume Boost",
-                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                            contentColor = if (uiState.isMicMuted) {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (uiState.volumeBoostPercent > 100) {
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                    }
-                                ) {
-                                    Text(
-                                        text = "${uiState.volumeBoostPercent}%",
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        ),
-                                        color = if (uiState.volumeBoostPercent > 100) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                                if (uiState.volumeBoostPercent != 100) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TextButton(
-                                        onClick = { onVolumeBoostChange(100) },
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(28.dp)
-                                    ) {
-                                        Text(
-                                            text = "Reset",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Slider(
-                            value = uiState.volumeBoostPercent.toFloat(),
-                            onValueChange = { newValue ->
-                                val stepped = ((newValue / 10f).let { kotlin.math.round(it) } * 10).toInt()
-                                onVolumeBoostChange(stepped)
-                            },
-                            valueRange = 0f..300f,
-                            steps = 29,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("volume_boost_slider")
                         )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "0%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = "100% (Default)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Text(
-                                text = "300% (3x)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = if (uiState.isMicMuted) "Unmute Mic" else "Mute Mic",
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Mute / Unmute Button
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        FilledTonalIconButton(
-                            onClick = onToggleMute,
-                            modifier = Modifier
-                                .size(60.dp)
-                                .testTag("mute_mic_button"),
-                            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
-                                containerColor = if (uiState.isMicMuted) {
-                                    MaterialTheme.colorScheme.errorContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerHigh
-                                },
-                                contentColor = if (uiState.isMicMuted) {
-                                    MaterialTheme.colorScheme.onErrorContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                }
-                            )
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                contentDescription = if (uiState.isMicMuted) "Unmute Mic" else "Mute Mic",
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier.height(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
                             text = if (uiState.isMicMuted) "Unmute" else "Mute",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
 
-                    // End Call Button (Red, prominent)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Button(
-                            onClick = onEndCall,
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
-                            ),
-                            modifier = Modifier
-                                .size(68.dp)
-                                .testTag("end_call_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CallEnd,
-                                contentDescription = "End Call",
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
+                // 2. End Call Button Column
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Button(
+                        onClick = onEndCall,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        modifier = Modifier
+                            .size(68.dp)
+                            .testTag("end_call_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallEnd,
+                            contentDescription = "End Call",
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier.height(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
                             text = "End Call",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.error
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
 
-                    // Smart Audio Routing Toggle Button (Speaker / Earpiece / Headset)
-                    val (routeIcon, routeLabel) = when (uiState.audioRoute) {
-                        AudioRoute.SPEAKER -> Pair(Icons.AutoMirrored.Filled.VolumeUp, "Speaker")
-                        AudioRoute.EARPIECE -> Pair(Icons.Default.PhoneInTalk, "Earpiece")
-                        AudioRoute.HEADSET -> Pair(Icons.Default.Headphones, "Headset")
+                // 3. Audio / Speaker Button Column (Simplified Label "Speaker" / "Earpiece" / "Headset")
+                val (routeIcon, routeLabel) = when (uiState.audioRoute) {
+                    AudioRoute.SPEAKER -> Pair(Icons.AutoMirrored.Filled.VolumeUp, "Speaker")
+                    AudioRoute.EARPIECE -> Pair(Icons.Default.PhoneInTalk, "Earpiece")
+                    AudioRoute.HEADSET -> Pair(Icons.Default.Headphones, "Headset")
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    FilledTonalIconButton(
+                        onClick = onOpenAudioControlSheet,
+                        modifier = Modifier
+                            .size(60.dp)
+                            .testTag("speaker_toggle_button"),
+                        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = if (uiState.volumeBoostPercent > 100) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            contentColor = if (uiState.volumeBoostPercent > 100) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    ) {
+                        Icon(
+                            imageVector = routeIcon,
+                            contentDescription = "$routeLabel / Audio Controls",
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        FilledTonalIconButton(
-                            onClick = onToggleSpeaker,
-                            modifier = Modifier
-                                .size(60.dp)
-                                .testTag("speaker_toggle_button"),
-                            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
-                                containerColor = if (uiState.audioRoute == AudioRoute.SPEAKER) {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerHigh
-                                },
-                                contentColor = if (uiState.audioRoute == AudioRoute.SPEAKER) {
-                                    MaterialTheme.colorScheme.onSecondaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                }
-                            )
-                        ) {
-                            Icon(
-                                imageVector = routeIcon,
-                                contentDescription = routeLabel,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier.height(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
                             text = routeLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PulsingAvatarVisualizer(
+    audioLevel: Float,
+    isPeerMuted: Boolean,
+    isConnected: Boolean
+) {
+    val transition = rememberInfiniteTransition(label = "pulse_ripple")
+    val animProgress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ripple_progress"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(170.dp)
+    ) {
+        // Multi-layered pulsing ripples when audioLevel > 0 and connected
+        if (isConnected && audioLevel > 0.05f) {
+            val scaleFactor1 = 1.0f + (animProgress * 0.45f * (0.5f + audioLevel * 0.5f))
+            val alpha1 = ((1f - animProgress) * 0.4f * (0.5f + audioLevel * 0.5f)).coerceIn(0f, 1f)
+
+            val scaleFactor2 = 1.0f + (((animProgress + 0.5f) % 1.0f) * 0.45f * (0.5f + audioLevel * 0.5f))
+            val alpha2 = ((1f - ((animProgress + 0.5f) % 1.0f)) * 0.4f * (0.5f + audioLevel * 0.5f)).coerceIn(0f, 1f)
+
+            Box(
+                modifier = Modifier
+                    .size(112.dp)
+                    .graphicsLayer {
+                        scaleX = scaleFactor1
+                        scaleY = scaleFactor1
+                        this.alpha = alpha1
+                    }
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(112.dp)
+                    .graphicsLayer {
+                        scaleX = scaleFactor2
+                        scaleY = scaleFactor2
+                        this.alpha = alpha2
+                    }
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), CircleShape)
+            )
+        }
+
+        // Main Central Avatar Container
+        Box(
+            modifier = Modifier
+                .size(112.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .border(
+                    width = 3.dp,
+                    color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Peer Avatar",
+                modifier = Modifier.size(60.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            // Muted Microphone badge overlay at bottom-right corner of avatar
+            if (isPeerMuted) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(2.dp)
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MicOff,
+                        contentDescription = "Peer Muted",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onError
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioControlBottomSheet(
+    volumeBoostPercent: Int,
+    currentAudioRoute: AudioRoute,
+    onVolumeBoostChange: (Int) -> Unit,
+    onAudioRouteSelected: (AudioRoute) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Audio & Volume Controls",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close Audio Controls")
+                }
+            }
+
+            // Volume Boost Section
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Volume Boost",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "$volumeBoostPercent%",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Slider(
+                        value = volumeBoostPercent.toFloat(),
+                        onValueChange = { newValue ->
+                            val stepped = ((newValue / 10f).let { kotlin.math.round(it) } * 10).toInt()
+                            onVolumeBoostChange(stepped)
+                        },
+                        valueRange = 0f..500f,
+                        steps = 49,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("audio_sheet_volume_boost_slider")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("0%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        Text("300% (Default)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        Text("500% (5x)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+
+            // Audio Routing Mode Selection
+            Column {
+                Text(
+                    text = "Audio Output Route",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val routes = listOf(
+                        Triple(AudioRoute.SPEAKER, "Speaker", Icons.AutoMirrored.Filled.VolumeUp),
+                        Triple(AudioRoute.EARPIECE, "Earpiece", Icons.Default.PhoneInTalk),
+                        Triple(AudioRoute.HEADSET, "Headset", Icons.Default.Headphones)
+                    )
+
+                    routes.forEach { (route, label, icon) ->
+                        val isSelected = currentAudioRoute == route
+                        Surface(
+                            onClick = { onAudioRouteSelected(route) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = label,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -62,7 +62,10 @@ data class CallUiState(
     val showAudioDspDialog: Boolean = false,
     val pingMs: Long? = null,
     val isMinimized: Boolean = false,
-    val volumeBoostPercent: Int = 100
+    val volumeBoostPercent: Int = 300,
+    val isPeerMuted: Boolean = false,
+    val audioLevel: Float = 0f,
+    val showAudioControlSheet: Boolean = false
 )
 
 class CallViewModel(application: Application) : AndroidViewModel(application) {
@@ -184,8 +187,8 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         val isLogging = prefs.getBoolean(KEY_ENABLE_NETWORK_LOGS, false)
         com.aazeth.calla.util.NetworkLogger.isEnabled = isLogging
 
-        // Load Volume Boost Preference (Default: 100%)
-        val savedVolumeBoost = prefs.getInt(KEY_VOLUME_BOOST, 100).coerceIn(0, 300)
+        // Load Volume Boost Preference (Default: 300%)
+        val savedVolumeBoost = prefs.getInt(KEY_VOLUME_BOOST, 300).coerceIn(0, 500)
 
         _uiState.update {
             it.copy(
@@ -242,6 +245,10 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showAudioDspDialog = visible) }
     }
 
+    fun setAudioControlSheetVisible(visible: Boolean) {
+        _uiState.update { it.copy(showAudioControlSheet = visible) }
+    }
+
     fun setEnableNetworkLogs(enabled: Boolean) {
         com.aazeth.calla.util.NetworkLogger.isEnabled = enabled
         _uiState.update { it.copy(isLoggingEnabled = enabled) }
@@ -276,7 +283,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setVolumeBoost(boost: Int) {
-        val clamped = boost.coerceIn(0, 300)
+        val clamped = boost.coerceIn(0, 500)
         _uiState.update { it.copy(volumeBoostPercent = clamped) }
         prefs.edit().putInt(KEY_VOLUME_BOOST, clamped).apply()
         webRtcClient?.setVolumeBoost(clamped)
@@ -501,6 +508,10 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        signalingClient.onPeerMuteStateChanged = { isMuted ->
+            _uiState.update { it.copy(isPeerMuted = isMuted) }
+        }
+
         signalingClient.observeRemoteCandidates(roomId, isHost) { candidate ->
             try {
                 webRtcClient?.addRemoteIceCandidate(candidate)
@@ -599,6 +610,8 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = null
     }
 
+    private var audioLevelPhase = 0f
+
     private fun startPingPolling() {
         pingJob?.cancel()
         pingJob = viewModelScope.launch {
@@ -606,7 +619,15 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                 webRtcClient?.queryRttStats { rtt ->
                     _uiState.update { it.copy(pingMs = rtt) }
                 }
-                delay(2000L)
+                // Calculate smooth audio level pulsing for visualizer when in active call
+                if (_uiState.value.callStatus == CallConnectionStatus.CONNECTED && !_uiState.value.isMicMuted) {
+                    audioLevelPhase = (audioLevelPhase + 0.3f) % (2f * Math.PI.toFloat())
+                    val normalizedLevel = (kotlin.math.sin(audioLevelPhase) * 0.4f + 0.5f).coerceIn(0.1f, 1.0f)
+                    _uiState.update { it.copy(audioLevel = normalizedLevel) }
+                } else {
+                    _uiState.update { it.copy(audioLevel = 0f) }
+                }
+                delay(300L)
             }
         }
     }
@@ -614,12 +635,16 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopPingPolling() {
         pingJob?.cancel()
         pingJob = null
-        _uiState.update { it.copy(pingMs = null) }
+        _uiState.update { it.copy(pingMs = null, audioLevel = 0f) }
     }
 
     fun toggleMute() {
         val muted = webRtcClient?.toggleMute() ?: false
         _uiState.update { it.copy(isMicMuted = muted) }
+        val roomId = _uiState.value.currentRoomId
+        if (roomId.isNotBlank()) {
+            signalingClient.sendMuteState(roomId, muted)
+        }
     }
 
     fun cycleAudioRoute() {
@@ -658,6 +683,9 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
                     callStatus = CallConnectionStatus.IDLE,
                     callStatusText = "",
                     isMicMuted = false,
+                    isPeerMuted = false,
+                    audioLevel = 0f,
+                    showAudioControlSheet = false,
                     audioRoute = AudioRoute.SPEAKER,
                     callDurationSeconds = 0L,
                     joinCodeInput = "",
