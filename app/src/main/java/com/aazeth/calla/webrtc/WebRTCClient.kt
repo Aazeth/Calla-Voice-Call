@@ -189,11 +189,14 @@ class WebRTCClient(
         // Clean software audio DSP constraints
         val audioConstraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", if (dspSettings.echoCancellation) "true" else "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", if (dspSettings.echoCancellation) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (dspSettings.autoGainControl) "true" else "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (dspSettings.autoGainControl) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (dspSettings.highpassFilter) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (dspSettings.noiseSuppression) "true" else "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", if (dspSettings.noiseSuppression) "true" else "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAudioProcessing", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
         }
 
         audioSource = factory.createAudioSource(audioConstraints)
@@ -376,8 +379,9 @@ class WebRTCClient(
                 val track = stream?.audioTracks?.firstOrNull()
                 if (track != null) {
                     remoteAudioTrack = track
-                    track.setVolume(volumeBoostPercent / 100.0)
-                    Log.d(TAG, "Remote audio stream track set to volume $volumeBoostPercent%")
+                    val gainVolume = ((volumeBoostPercent / 100.0) * 2.5).coerceIn(0.1, 10.0)
+                    track.setVolume(gainVolume)
+                    Log.d(TAG, "Remote audio stream track set to boosted volume $gainVolume")
                 }
             }
 
@@ -394,8 +398,9 @@ class WebRTCClient(
                 val track = receiver?.track()
                 if (track is AudioTrack) {
                     remoteAudioTrack = track
-                    track.setVolume(volumeBoostPercent / 100.0)
-                    Log.d(TAG, "Remote AudioTrack volume set to $volumeBoostPercent%")
+                    val gainVolume = ((volumeBoostPercent / 100.0) * 2.5).coerceIn(0.1, 10.0)
+                    track.setVolume(gainVolume)
+                    Log.d(TAG, "Remote AudioTrack volume set to boosted volume $gainVolume")
                 }
             }
         })
@@ -408,77 +413,16 @@ class WebRTCClient(
 
     fun setVolumeBoost(boostPercent: Int) {
         volumeBoostPercent = boostPercent.coerceIn(0, 500)
-        remoteAudioTrack?.setVolume(volumeBoostPercent / 100.0)
-        Log.d(TAG, "Dynamic volume boost applied: $volumeBoostPercent%")
+        val gainVolume = ((volumeBoostPercent / 100.0) * 2.5).coerceIn(0.1, 10.0)
+        remoteAudioTrack?.setVolume(gainVolume)
+        Log.d(TAG, "Dynamic volume boost applied: $volumeBoostPercent% (gain: $gainVolume)")
     }
 
     fun updateAudioDspSettings(newSettings: AudioDspSettings) {
         Log.d(TAG, "Dynamic Audio DSP settings update applied: $newSettings")
         com.aazeth.calla.util.NetworkLogger.log("WebRTC", "Dynamic Audio DSP settings update: $newSettings")
-    }
-
-    fun startLoopbackCall(bitrateKbps: Int = 128) {
-        val pc = peerConnection ?: return
-        val constraints = MediaConstraints().apply {
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
-        }
-
-        pc.createOffer(object : SdpObserver {
-            override fun onCreateSuccess(desc: SessionDescription?) {
-                if (desc == null) return
-                val mungedSdp = SdpUtil.setOpusBitrate(desc.description, bitrateKbps)
-                val offer = SessionDescription(desc.type, mungedSdp)
-                pc.setLocalDescription(object : SdpObserver {
-                    override fun onSetSuccess() {
-                        pc.setRemoteDescription(object : SdpObserver {
-                            override fun onSetSuccess() {
-                                pc.createAnswer(object : SdpObserver {
-                                    override fun onCreateSuccess(answerDesc: SessionDescription?) {
-                                        if (answerDesc == null) return
-                                        val answerMunged = SdpUtil.setOpusBitrate(answerDesc.description, bitrateKbps)
-                                        val answer = SessionDescription(answerDesc.type, answerMunged)
-                                        pc.setLocalDescription(object : SdpObserver {
-                                            override fun onSetSuccess() {
-                                                pc.setRemoteDescription(object : SdpObserver {
-                                                    override fun onSetSuccess() {
-                                                        Log.d(TAG, "Loopback connection established successfully")
-                                                    }
-                                                    override fun onSetFailure(err: String?) {
-                                                        Log.e(TAG, "Loopback remote answer failure: $err")
-                                                    }
-                                                    override fun onCreateSuccess(p0: SessionDescription?) {}
-                                                    override fun onCreateFailure(err: String?) {}
-                                                }, answer)
-                                            }
-                                            override fun onSetFailure(err: String?) {}
-                                            override fun onCreateSuccess(p0: SessionDescription?) {}
-                                            override fun onCreateFailure(err: String?) {}
-                                        }, answer)
-                                    }
-                                    override fun onSetSuccess() {}
-                                    override fun onSetFailure(err: String?) {}
-                                    override fun onCreateFailure(err: String?) {}
-                                }, MediaConstraints())
-                            }
-                            override fun onSetFailure(err: String?) {}
-                            override fun onCreateSuccess(p0: SessionDescription?) {}
-                            override fun onCreateFailure(err: String?) {}
-                        }, offer)
-                    }
-                    override fun onSetFailure(err: String?) {
-                        Log.e(TAG, "SetLocalDescription failure in loopback: $err")
-                    }
-                    override fun onCreateSuccess(p0: SessionDescription?) {}
-                    override fun onCreateFailure(err: String?) {}
-                }, offer)
-            }
-            override fun onCreateFailure(err: String?) {
-                Log.e(TAG, "CreateOffer failure in loopback: $err")
-            }
-            override fun onSetSuccess() {}
-            override fun onSetFailure(err: String?) {}
-        }, constraints)
+        // Ensure local audio track state responds to DSP updates in real-time
+        localAudioTrack?.setEnabled(!isMicMuted)
     }
 
     fun createOffer(bitrateKbps: Int, onOfferReady: (SessionDescription) -> Unit) {

@@ -359,46 +359,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
         startPingPolling()
     }
 
-    fun startDebugCall() {
-        val context = getApplication<Application>()
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            _uiState.update { it.copy(errorMessage = "Microphone permission is required to start debug ear monitoring") }
-            return
-        }
 
-        val bitrate = _uiState.value.bitrateKbps
-        isEndingCall = false
-        isAnswerCreated = false
-
-        _uiState.update {
-            it.copy(
-                screen = ScreenState.IN_CALL,
-                isMinimized = false,
-                currentRoomId = "DEBUG-LOOP",
-                isHost = true,
-                peerName = "Debug Loopback (Self Test)",
-                callStatus = CallConnectionStatus.CONNECTED,
-                callStatusText = "Debug Ear Monitoring",
-                isMicMuted = false,
-                isPeerMuted = false,
-                callDurationSeconds = 0L,
-                showAudioControlSheet = false,
-                isLoading = false,
-                errorMessage = null
-            )
-        }
-
-        initWebRTC(
-            isHost = true,
-            roomId = "DEBUG-LOOP",
-            bitrateKbps = bitrate,
-            onReady = { rtc ->
-                rtc.startLoopbackCall(bitrate)
-            }
-        )
-        startTimer()
-        startPingPolling()
-    }
 
     fun joinRoom() {
         val context = getApplication<Application>()
@@ -472,11 +433,7 @@ class CallViewModel(application: Application) : AndroidViewModel(application) {
             val client = WebRTCClient(
                 context = context,
                 onIceCandidateGenerated = { candidate ->
-                    if (_uiState.value.currentRoomId == "DEBUG-LOOP") {
-                        webRtcClient?.addRemoteIceCandidate(candidate)
-                    } else {
-                        signalingClient.sendIceCandidate(roomId, isHost, candidate)
-                    }
+                    signalingClient.sendIceCandidate(roomId, isHost, candidate)
                 },
                 onConnectionStatusChanged = { status ->
                     viewModelScope.launch {

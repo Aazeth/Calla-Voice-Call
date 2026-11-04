@@ -43,7 +43,7 @@ object SdpUtil {
             }
         }
 
-        val highFidelityParams = "maxaveragebitrate=$bitrateBps;stereo=1;sprop-stereo=1;sprop-maxcapturerate=48000;useinbandfec=1;cbr=1"
+        val highFidelityParams = "maxaveragebitrate=$bitrateBps;stereo=1;sprop-stereo=1;sprop-maxcapturerate=48000;maxplaybackrate=48000;useinbandfec=1;cbr=1;usedtx=0"
 
         if (fmtpIndex != -1) {
             val currentFmtp = lines[fmtpIndex]
@@ -59,8 +59,10 @@ object SdpUtil {
             updatedParams["stereo"] = "1"
             updatedParams["sprop-stereo"] = "1"
             updatedParams["sprop-maxcapturerate"] = "48000"
+            updatedParams["maxplaybackrate"] = "48000"
             updatedParams["useinbandfec"] = "1"
             updatedParams["cbr"] = "1"
+            updatedParams["usedtx"] = "0"
 
             val fmtpStr = updatedParams.entries.joinToString(";") { "${it.key}=${it.value}" }
             lines[fmtpIndex] = "$fmtpPrefix $fmtpStr"

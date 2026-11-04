@@ -143,7 +143,6 @@ fun CallaApp(
             onLoggingEnabledChanged = viewModel::setEnableNetworkLogs,
             onDspSettingsChanged = viewModel::updateDspSettings,
             onTurnConfigChanged = viewModel::updateTurnConfig,
-            onStartDebugCall = viewModel::startDebugCall,
             onDismiss = { viewModel.setAudioDspDialogVisible(false) }
         )
     }
@@ -991,9 +990,8 @@ fun InCallScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Compact Room Code Card (Auto-hidden once partner joins)
-                val partnerJoined = uiState.callStatus == CallConnectionStatus.CONNECTED || (uiState.peerName.isNotBlank() && !uiState.peerName.startsWith("Waiting"))
-                AnimatedVisibility(visible = !partnerJoined) {
+                // Compact Room Code Card (Persistently available during call)
+                if (uiState.currentRoomId.isNotBlank()) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1457,7 +1455,6 @@ fun SettingsBottomSheet(
     onLoggingEnabledChanged: (Boolean) -> Unit,
     onDspSettingsChanged: (AudioDspSettings) -> Unit,
     onTurnConfigChanged: (TurnConfig) -> Unit,
-    onStartDebugCall: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1832,75 +1829,6 @@ fun SettingsBottomSheet(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Clear Logs", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-
-            if (!isCallActive) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                // Debug Call & Ear Monitoring Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = "Debug Call & Ear Monitoring",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Text(
-                            text = "Test WebRTC audio quality, ear monitoring, and preview real-time Call Screen DSP processing by listening to your own voice.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Button(
-                            onClick = {
-                                handleDismiss()
-                                onStartDebugCall()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .testTag("start_debug_call_button"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.tertiary,
-                                contentColor = MaterialTheme.colorScheme.onTertiary
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Start Ear Monitoring Test",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
                     }
                 }
             }
