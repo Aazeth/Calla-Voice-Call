@@ -128,13 +128,13 @@ class WebRTCClient(
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
-        // Custom JavaAudioDeviceModule with VOICE_COMMUNICATION for crystal clear software voice recording
+        // Custom JavaAudioDeviceModule with MIC audio source and MEDIA usage for 48 kHz fullband ambient audio
         val adm = JavaAudioDeviceModule.builder(context)
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            .setAudioSource(MediaRecorder.AudioSource.MIC)
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
             .setUseHardwareAcousticEchoCanceler(false)
@@ -415,6 +415,59 @@ class WebRTCClient(
     fun updateAudioDspSettings(newSettings: AudioDspSettings) {
         Log.d(TAG, "Dynamic Audio DSP settings update applied: $newSettings")
         com.aazeth.calla.util.NetworkLogger.log("WebRTC", "Dynamic Audio DSP settings update: $newSettings")
+    }
+
+    fun startLoopbackCall(bitrateKbps: Int = 128) {
+        val pc = peerConnection ?: return
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+        }
+
+        pc.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(desc: SessionDescription?) {
+                if (desc == null) return
+                val mungedSdp = SdpUtil.setOpusBitrate(desc.description, bitrateKbps)
+                val offer = SessionDescription(desc.type, mungedSdp)
+                pc.setLocalDescription(object : SdpObserver {
+                    override fun onSetSuccess() {
+                        pc.setRemoteDescription(object : SdpObserver {
+                            override fun onSetSuccess() {
+                                pc.createAnswer(object : SdpObserver {
+                                    override fun onCreateSuccess(answerDesc: SessionDescription?) {
+                                        if (answerDesc == null) return
+                                        val answerMunged = SdpUtil.setOpusBitrate(answerDesc.description, bitrateKbps)
+                                        val answer = SessionDescription(answerDesc.type, answerMunged)
+                                        pc.setLocalDescription(object : SdpObserver {
+                                            override fun onSetSuccess() {}
+                                            override fun onSetFailure(err: String?) {}
+                                            override fun onCreateSuccess(p0: SessionDescription?) {}
+                                            override fun onCreateFailure(err: String?) {}
+                                        }, answer)
+                                    }
+                                    override fun onSetSuccess() {}
+                                    override fun onSetFailure(err: String?) {}
+                                    override fun onCreateFailure(err: String?) {}
+                                }, MediaConstraints())
+                            }
+                            override fun onSetFailure(err: String?) {}
+                            override fun onCreateSuccess(p0: SessionDescription?) {}
+                            override fun onCreateFailure(err: String?) {}
+                        }, offer)
+                    }
+                    override fun onSetFailure(err: String?) {
+                        Log.e(TAG, "SetLocalDescription failure in loopback: $err")
+                    }
+                    override fun onCreateSuccess(p0: SessionDescription?) {}
+                    override fun onCreateFailure(err: String?) {}
+                }, offer)
+            }
+            override fun onCreateFailure(err: String?) {
+                Log.e(TAG, "CreateOffer failure in loopback: $err")
+            }
+            override fun onSetSuccess() {}
+            override fun onSetFailure(err: String?) {}
+        }, constraints)
     }
 
     fun createOffer(bitrateKbps: Int, onOfferReady: (SessionDescription) -> Unit) {

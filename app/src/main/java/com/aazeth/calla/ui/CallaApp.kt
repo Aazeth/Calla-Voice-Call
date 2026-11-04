@@ -1,5 +1,6 @@
 package com.aazeth.calla.ui
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -10,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -56,6 +58,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -139,6 +142,7 @@ fun CallaApp(
             onLoggingEnabledChanged = viewModel::setEnableNetworkLogs,
             onDspSettingsChanged = viewModel::updateDspSettings,
             onTurnConfigChanged = viewModel::updateTurnConfig,
+            onStartDebugCall = viewModel::startDebugCall,
             onDismiss = { viewModel.setAudioDspDialogVisible(false) }
         )
     }
@@ -700,6 +704,12 @@ fun InCallScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Header: Top Bar with statusBarsPadding, 56.dp height, 16.dp horizontal padding, CenterVertically
+                val minutes = uiState.callDurationSeconds / 60
+                val seconds = uiState.callDurationSeconds % 60
+                val formattedTime = String.format("%02d:%02d", minutes, seconds)
+                val partnerJoined = uiState.callStatus == CallConnectionStatus.CONNECTED || (uiState.peerName.isNotBlank() && !uiState.peerName.startsWith("Waiting"))
+                val displayName = if (partnerJoined) uiState.peerName.ifBlank { "Host" } else "Waiting..."
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -727,41 +737,36 @@ fun InCallScreen(
                             )
                         }
 
-                        // Top-Center: Ping Indicator Mini Pill Badge
-                        val pingVal = uiState.pingMs
-                        val (pingDotColor, pingTextColor, pingText) = when {
-                            pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
-                            pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                            pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                            else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.testTag("ping_indicator_badge")
+                        // Top-Center: Peer Name (Vertically centered with side buttons) & Call Duration Timer closely underneath
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
+                            modifier = Modifier.padding(top = 4.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(pingDotColor)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = pingText,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    ),
-                                    color = pingTextColor
-                                )
-                            }
+                            Text(
+                                text = displayName,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 18.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (uiState.callStatus == CallConnectionStatus.CONNECTED) formattedTime else "00:00",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 10.sp
+                                ),
+                                color = if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                }
+                            )
                         }
 
                         // Top-Right: Settings Button (24.dp icon with 48.dp touch target)
@@ -781,65 +786,14 @@ fun InCallScreen(
                     }
                 }
 
-                // Compact Central Column: Room Code Card, Connection Status Badge, Avatar Visualizer, Peer Name, Duration Timer, Bitrate Chip
-                Column(
+                // Centered Sub-Header Status Row: Connection status, Ping, Peer Muted
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Room Code Card (Auto-hidden once partner joins)
-                    val partnerJoined = uiState.callStatus == CallConnectionStatus.CONNECTED || (uiState.peerName.isNotBlank() && !uiState.peerName.startsWith("Waiting"))
-                    AnimatedVisibility(visible = !partnerJoined) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "ROOM CODE",
-                                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                    Text(
-                                        text = uiState.currentRoomId,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace,
-                                            letterSpacing = 2.sp
-                                        ),
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-
-                                FilledTonalIconButton(
-                                    onClick = {
-                                        clipboardManager.setText(AnnotatedString(uiState.currentRoomId))
-                                        Toast.makeText(context, "Room code copied: ${uiState.currentRoomId}", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .testTag("copy_room_code_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy Room Code",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     // Connection status chip
                     val statusDotColor = when (uiState.callStatus) {
                         CallConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
@@ -850,12 +804,12 @@ fun InCallScreen(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -864,7 +818,7 @@ fun InCallScreen(
                                     .clip(CircleShape)
                                     .background(statusDotColor)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = uiState.callStatusText.ifBlank { "Connecting..." },
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
@@ -873,176 +827,271 @@ fun InCallScreen(
                         }
                     }
 
-                    // Pulsing Ripple Wave Visualizer
-                    PulsingAvatarVisualizer(
-                        audioLevel = uiState.audioLevel,
-                        isPeerMuted = uiState.isPeerMuted,
-                        isConnected = uiState.callStatus == CallConnectionStatus.CONNECTED
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    // Peer Name + Muted Microphone Icon / Badge
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    // Ping Indicator Pill Badge
+                    val pingVal = uiState.pingMs
+                    val (pingDotColor, pingTextColor, pingText) = when {
+                        pingVal == null -> Triple(MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant, "Ping: -- ms")
+                        pingVal < 100 -> Triple(Color(0xFF4CAF50), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        pingVal <= 250 -> Triple(Color(0xFFFFB300), MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                        else -> Triple(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.onSurface, "Ping: ${pingVal}ms")
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.testTag("ping_indicator_badge")
                     ) {
-                        Text(
-                            text = uiState.peerName.ifBlank { if (uiState.isHost) "Waiting for guest..." else "Host" },
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (uiState.isPeerMuted) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.errorContainer
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(pingDotColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = pingText,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = pingTextColor
+                            )
+                        }
+                    }
+
+                    if (uiState.isPeerMuted) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MicOff,
-                                        contentDescription = "Peer Muted",
-                                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Muted",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.MicOff,
+                                    contentDescription = "Peer Muted",
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Muted",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
                             }
                         }
                     }
+                }
 
-                    // Call Duration Timer
-                    val minutes = uiState.callDurationSeconds / 60
-                    val seconds = uiState.callDurationSeconds % 60
-                    val formattedTime = String.format("%02d:%02d", minutes, seconds)
-
+                // Bitrate Chip Row directly under status badges
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer
+                ) {
                     Text(
-                        text = if (uiState.callStatus == CallConnectionStatus.CONNECTED) formattedTime else "00:00",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
+                        text = "${uiState.bitrateKbps} kbps • Opus 48 kHz",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Medium,
                             fontFamily = FontFamily.Monospace
                         ),
-                        color = if (uiState.callStatus == CallConnectionStatus.CONNECTED) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        }
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
-
-                    // Active Audio Quality Info
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer
-                    ) {
-                        Text(
-                            text = "${uiState.bitrateKbps} kbps • Opus 48 kHz",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                        )
-                    }
                 }
             }
 
-            // Symmetrical 3 Bottom Action Buttons (Mute, End Call, Speaker)
-            Row(
+            // Vertically Centered Pulsing Ripple Wave Visualizer Container (40% Upscaled)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                PulsingAvatarVisualizer(
+                    audioLevel = uiState.audioLevel,
+                    isPeerMuted = false,
+                    isConnected = uiState.callStatus == CallConnectionStatus.CONNECTED
+                )
+            }
+
+            // Bottom Group: Room Code Card + 3 Action Buttons
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. Mute / Unmute Button Column
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    FilledTonalIconButton(
-                        onClick = onToggleMute,
-                        modifier = Modifier
-                            .size(60.dp)
-                            .testTag("mute_mic_button"),
-                        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = if (uiState.isMicMuted) {
-                                MaterialTheme.colorScheme.errorContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
-                            contentColor = if (uiState.isMicMuted) {
-                                MaterialTheme.colorScheme.onErrorContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
+                // Compact Room Code Card (Auto-hidden once partner joins)
+                val partnerJoined = uiState.callStatus == CallConnectionStatus.CONNECTED || (uiState.peerName.isNotBlank() && !uiState.peerName.startsWith("Waiting"))
+                AnimatedVisibility(visible = !partnerJoined) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.wrapContentWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Share Button on Left
+                            IconButton(
+                                onClick = {
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, "Join my Calla room code: ${uiState.currentRoomId}")
+                                        type = "text/plain"
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Share Room Code"))
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("share_room_code_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share Room Code",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (uiState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = if (uiState.isMicMuted) "Unmute Mic" else "Mute Mic",
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier.height(20.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (uiState.isMicMuted) "Unmute" else "Mute",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "ROOM CODE",
+                                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Text(
+                                    text = uiState.currentRoomId,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 2.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            // Copy Button on Right
+                            IconButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(uiState.currentRoomId))
+                                    Toast.makeText(context, "Room code copied: ${uiState.currentRoomId}", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("copy_room_code_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy Room Code",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 
-                // 2. End Call Button Column
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                // Symmetrical 3 Bottom Action Buttons (Mute, End, Speaker)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
-                        onClick = onEndCall,
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        ),
-                        modifier = Modifier
-                            .size(68.dp)
-                            .testTag("end_call_button")
+                    // 1. Mute / Unmute Button Column
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CallEnd,
-                            contentDescription = "End Call",
-                            modifier = Modifier.size(32.dp)
-                        )
+                        FilledTonalIconButton(
+                            onClick = onToggleMute,
+                            modifier = Modifier
+                                .size(60.dp)
+                                .testTag("mute_mic_button"),
+                            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = if (uiState.isMicMuted) {
+                                    MaterialTheme.colorScheme.errorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                },
+                                contentColor = if (uiState.isMicMuted) {
+                                    MaterialTheme.colorScheme.onErrorContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = if (uiState.isMicMuted) "Unmute Mic" else "Mute Mic",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier.height(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (uiState.isMicMuted) "Unmute" else "Mute",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier.height(20.dp),
-                        contentAlignment = Alignment.Center
+
+                    // 2. End Call Button Column
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = "End Call",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.error,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Button(
+                            onClick = onEndCall,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ),
+                            modifier = Modifier
+                                .size(68.dp)
+                                .testTag("end_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallEnd,
+                                contentDescription = "End Call",
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier.height(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "End",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                }
 
                 // 3. Audio / Speaker Button Column (Simplified Label "Speaker" / "Earpiece" / "Headset")
                 val (routeIcon, routeLabel) = when (uiState.audioRoute) {
@@ -1097,6 +1146,7 @@ fun InCallScreen(
         }
     }
 }
+}
 
 @Composable
 fun PulsingAvatarVisualizer(
@@ -1115,48 +1165,51 @@ fun PulsingAvatarVisualizer(
         label = "ripple_progress"
     )
 
+    // Vocal filter curve: filter out low background noise (<0.08f) and scale vocal dynamics
+    val vocalLevel = ((audioLevel - 0.08f) / 0.72f).coerceIn(0f, 1f)
+
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(170.dp)
+        modifier = Modifier.size(238.dp)
     ) {
-        // Multi-layered pulsing ripples when audioLevel > 0 and connected
-        if (isConnected && audioLevel > 0.05f) {
-            val scaleFactor1 = 1.0f + (animProgress * 0.45f * (0.5f + audioLevel * 0.5f))
-            val alpha1 = ((1f - animProgress) * 0.4f * (0.5f + audioLevel * 0.5f)).coerceIn(0f, 1f)
+        // Multi-layered pulsing ripples when vocalLevel > 0 and connected
+        if (isConnected && vocalLevel > 0.01f) {
+            val scaleFactor1 = 1.0f + (animProgress * 0.45f * (0.4f + vocalLevel * 0.6f))
+            val alpha1 = ((1f - animProgress) * 0.55f * (0.4f + vocalLevel * 0.6f)).coerceIn(0f, 1f)
 
-            val scaleFactor2 = 1.0f + (((animProgress + 0.5f) % 1.0f) * 0.45f * (0.5f + audioLevel * 0.5f))
-            val alpha2 = ((1f - ((animProgress + 0.5f) % 1.0f)) * 0.4f * (0.5f + audioLevel * 0.5f)).coerceIn(0f, 1f)
+            val scaleFactor2 = 1.0f + (((animProgress + 0.5f) % 1.0f) * 0.45f * (0.4f + vocalLevel * 0.6f))
+            val alpha2 = ((1f - ((animProgress + 0.5f) % 1.0f)) * 0.40f * (0.4f + vocalLevel * 0.6f)).coerceIn(0f, 1f)
 
             Box(
                 modifier = Modifier
-                    .size(112.dp)
+                    .size(156.dp)
                     .graphicsLayer {
                         scaleX = scaleFactor1
                         scaleY = scaleFactor1
                         this.alpha = alpha1
                     }
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), CircleShape)
             )
             Box(
                 modifier = Modifier
-                    .size(112.dp)
+                    .size(156.dp)
                     .graphicsLayer {
                         scaleX = scaleFactor2
                         scaleY = scaleFactor2
                         this.alpha = alpha2
                     }
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
             )
         }
 
-        // Main Central Avatar Container
+        // Main Central Avatar Container (Upscaled by 40%: 112.dp -> 156.dp)
         Box(
             modifier = Modifier
-                .size(112.dp)
+                .size(156.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primaryContainer)
                 .border(
-                    width = 3.dp,
+                    width = 4.dp,
                     color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                     shape = CircleShape
                 ),
@@ -1165,29 +1218,9 @@ fun PulsingAvatarVisualizer(
             Icon(
                 imageVector = Icons.Default.Person,
                 contentDescription = "Peer Avatar",
-                modifier = Modifier.size(60.dp),
+                modifier = Modifier.size(84.dp),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer
             )
-
-            // Muted Microphone badge overlay at bottom-right corner of avatar
-            if (isPeerMuted) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(2.dp)
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.error),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MicOff,
-                        contentDescription = "Peer Muted",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onError
-                    )
-                }
-            }
         }
     }
 }
@@ -1364,6 +1397,7 @@ fun SettingsBottomSheet(
     onLoggingEnabledChanged: (Boolean) -> Unit,
     onDspSettingsChanged: (AudioDspSettings) -> Unit,
     onTurnConfigChanged: (TurnConfig) -> Unit,
+    onStartDebugCall: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1738,6 +1772,73 @@ fun SettingsBottomSheet(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Clear Logs", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            // Debug Call & Ear Monitoring Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Debug Call & Ear Monitoring",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Text(
+                        text = "Test WebRTC audio quality, ear monitoring, and preview real-time Call Screen DSP processing by listening to your own voice.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = {
+                            handleDismiss()
+                            onStartDebugCall()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("start_debug_call_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Start Ear Monitoring Test",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 }
             }
